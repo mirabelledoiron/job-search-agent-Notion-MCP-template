@@ -82,12 +82,51 @@ Alternatively, add your criteria directly to the **Notion Preferences DB** (no `
 
 ### 5. Fill in your `.env`
 
+Your `.env` has two types of keys: **required** (the agent won't run without them) and **optional** (extra job sources — the agent skips any source whose keys are missing).
+
+#### Required keys
+
+| Key | How to get it |
+|-----|---------------|
+| `ANTHROPIC_API_KEY` | Sign up at [console.anthropic.com](https://console.anthropic.com), go to **API Keys**, create a new key. Starts with `sk-ant-...` |
+| `NOTION_TOKEN` | Go to [notion.so/my-integrations](https://www.notion.so/my-integrations), click **+ New integration**, name it (e.g. "Job Search Agent"), copy the token. Starts with `secret_...` |
+| `NOTION_DAILY_SUMMARIES_PAGE_ID` | Printed by `npm run seed` (step 3). Or copy the ID from your Notion page URL |
+| `NOTION_JOB_TRACKER_DB_ID` | Printed by `npm run seed` (step 3). Or copy from your database URL |
+
+#### Optional keys — Notion databases
+
+| Key | How to get it |
+|-----|---------------|
+| `NOTION_PREFERENCES_DB_ID` | Printed by `npm run seed`. Lets you control the agent from Notion instead of `config.json` |
+| `NOTION_CONTROL_DB_ID` | Printed by `npm run seed`. Lets you pause/resume the agent and track run stats from Notion |
+
+#### Optional keys — extra job sources
+
+These sources are **skipped automatically** if their keys are not set. The agent still works with the other 9 sources.
+
+| Key | How to get it |
+|-----|---------------|
+| `ADZUNA_APP_ID` | Register for free at [developer.adzuna.com](https://developer.adzuna.com), create an app, copy the App ID |
+| `ADZUNA_APP_KEY` | Same page as above — copy the App Key |
+| `DICE_API_KEY` | Dice job search API key. See [Dice developer docs](https://www.dice.com) for details |
+
+#### Example `.env`
+
 ```bash
+# Required
 ANTHROPIC_API_KEY=sk-ant-...
 NOTION_TOKEN=secret_...
-NOTION_DAILY_SUMMARIES_PAGE_ID=...   # printed by npm run seed
-NOTION_JOB_TRACKER_DB_ID=...         # printed by npm run seed
-NOTION_PREFERENCES_DB_ID=...         # printed by npm run seed
+NOTION_DAILY_SUMMARIES_PAGE_ID=abc123...
+NOTION_JOB_TRACKER_DB_ID=def456...
+
+# Optional Notion databases
+NOTION_PREFERENCES_DB_ID=ghi789...
+NOTION_CONTROL_DB_ID=jkl012...
+
+# Optional job sources (leave blank to skip)
+ADZUNA_APP_ID=
+ADZUNA_APP_KEY=
+DICE_API_KEY=
 ```
 
 ### 6. Test locally
@@ -275,6 +314,7 @@ LinkedIn, Indeed, and Welcome to the Jungle block automated requests from cloud 
 - **Notion API** (`@notionhq/client`) — bi-directional control layer
 - **GitHub Actions** — scheduled daily cron, no server needed
 - **Adzuna API** — optional free job data (register at [developer.adzuna.com](https://developer.adzuna.com))
+- **Dice API** — optional job search (requires API key)
 - **Greenhouse / Ashby** — public ATS APIs, no auth required
 - **cheerio** — HTML scraping
 - **fast-xml-parser** — RSS parsing

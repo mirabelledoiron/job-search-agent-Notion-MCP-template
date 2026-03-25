@@ -1,8 +1,14 @@
 import type { Job } from "../types.js";
 
+const DICE_API_KEY = process.env.DICE_API_KEY;
 const SEARCH_TERMS = ["software engineer", "full stack developer", "frontend engineer"];
 
 export async function fetchDice(): Promise<Job[]> {
+  if (!DICE_API_KEY) {
+    console.log("[Dice] Skipping — DICE_API_KEY not set");
+    return [];
+  }
+
   const results = await Promise.allSettled(
     SEARCH_TERMS.map((term) => fetchTerm(term))
   );
@@ -40,7 +46,7 @@ async function fetchTerm(query: string): Promise<Job[]> {
   const url = `https://job-search-api.svc.dhigroupinc.com/v1/dice/jobs/search?${params}`;
   const res = await fetch(url, {
     headers: {
-      "x-api-key": "1YAt0R9wBg4WfsF9VB2778F5CHLAPMVW3WAZcKd8",
+      "x-api-key": DICE_API_KEY!,
       "User-Agent": "Mozilla/5.0",
     },
     signal: AbortSignal.timeout(15_000),

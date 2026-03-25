@@ -32,4 +32,5 @@ jobs:
           NOTION_CONTROL_DB_ID: ${{ secrets.NOTION_CONTROL_DB_ID }}
           ADZUNA_APP_ID: ${{ secrets.ADZUNA_APP_ID }}
           ADZUNA_APP_KEY: ${{ secrets.ADZUNA_APP_KEY }}
+          DICE_API_KEY: ${{ secrets.DICE_API_KEY }}
         run: npx tsx src/index.ts
