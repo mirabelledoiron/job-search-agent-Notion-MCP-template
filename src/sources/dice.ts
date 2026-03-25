@@ -37,8 +37,8 @@ async function fetchTerm(query: string): Promise<Job[]> {
     radiusUnit: "mi",
     page: "1",
     pageSize: "20",
-    filters.postedDate: "ONE_WEEK",
-    filters.workplaceTypes: "Remote",
+    "filters.postedDate": "ONE_WEEK",
+    "filters.workplaceTypes": "Remote",
     language: "en",
     eid: "search",
   });
