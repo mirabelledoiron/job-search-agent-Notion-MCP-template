@@ -1,5 +1,5 @@
 // Run with: npm run weekly
-// Queries all Applied jobs in the Job Tracker and generates
+// Queries all Applied jobs in the Job Tracker database and generates
 // a formatted weekly applications page for unemployment insurance reporting.
 import "dotenv/config";
 import { notion, IDS, formatSalary } from "./writer.js";
@@ -36,10 +36,11 @@ async function generateWeeklyReport(): Promise<void> {
   });
 
   if (jobs.length === 0) {
-    console.log("No applied jobs found. Mark jobs as Applied in your Job Tracker first.");
+    console.log("No applied jobs found. Check a job as Applied in Notion first.");
     return;
   }
 
+  // Determine the week range from the applied dates
   const appliedDates = jobs.map((j) => j.dateApplied).filter((d) => d !== "—").sort();
   const weekStart = appliedDates[0] ?? new Date().toISOString().split("T")[0];
   const weekEnd = appliedDates[appliedDates.length - 1] ?? weekStart;
@@ -60,7 +61,7 @@ async function generateWeeklyReport(): Promise<void> {
           icon: { type: "emoji", emoji: ">" },
           rich_text: [{
             type: "text",
-            text: { content: `${jobs.length} applications for the week of ${weekStart} – ${weekEnd}.` },
+            text: { content: `${jobs.length} applications for the week of ${weekStart} – ${weekEnd}. Use this for unemployment insurance reporting.` },
           }],
         },
       },
@@ -74,7 +75,14 @@ async function generateWeeklyReport(): Promise<void> {
           children: [
             tableRow(["#", "Employer", "Position", "Date Applied", "Website", "Method"]),
             ...jobs.map((job, i) =>
-              tableRow([String(i + 1), job.company, job.title, job.dateApplied, job.url, "Online"])
+              tableRow([
+                String(i + 1),
+                job.company,
+                job.title,
+                job.dateApplied,
+                job.url,
+                "Online",
+              ])
             ),
           ],
         },
@@ -99,7 +107,7 @@ async function generateWeeklyReport(): Promise<void> {
     ],
   });
 
-  console.log(`Done. Report created: "${title}"`);
+  console.log(`Done. Report created in Notion: "${title}"`);
 }
 
 function tableRow(cells: string[]) {

@@ -9,9 +9,10 @@ Target titles: ${prefs.titles.join(", ")}
 Core skills: ${prefs.skills.join(", ")}
 Salary floor: $${prefs.salary.floor.toLocaleString()}
 Target salary: $${prefs.salary.targetMin.toLocaleString()}–$${prefs.salary.targetMax.toLocaleString()}
-Work type: Full remote preferred
-Industries to target: ${prefs.industryKeywords.target.join(", ")}
-Industries to avoid: ${prefs.industryKeywords.avoid.join(", ")}
+Work type: ${prefs.remote ? "Full remote" : "On-site or hybrid"}
+Preferred locations: ${prefs.locations.join(", ")}
+Industries: ${prefs.industryKeywords.target.join(", ")}
+Avoid: ${prefs.industryKeywords.avoid.join(", ")}
 `.trim();
 }
 
@@ -22,7 +23,7 @@ function buildFeedbackContext(feedback: UserFeedback): string {
     lines.push(`Previously marked RELEVANT (good signals): ${feedback.relevant.slice(0, 5).join("; ")}`);
   }
   if (feedback.notRelevant.length > 0) {
-    lines.push(`Previously marked NOT RELEVANT (noise): ${feedback.notRelevant.slice(0, 5).join("; ")}`);
+    lines.push(`Previously marked NOT RELEVANT (noise to avoid): ${feedback.notRelevant.slice(0, 5).join("; ")}`);
   }
   return `\nUser feedback from past runs:\n${lines.join("\n")}`;
 }
@@ -58,7 +59,8 @@ Score this job 0–100 for the candidate above. Return ONLY valid JSON, no other
     messages: [{ role: "user", content: prompt }],
   });
 
-  const text = message.content[0].type === "text" ? message.content[0].text.trim() : "{}";
+  const text =
+    message.content[0].type === "text" ? message.content[0].text.trim() : "{}";
 
   let parsed: { score: number; reasoning: string; salaryFit: ScoredJob["salaryFit"] };
   try {
@@ -70,6 +72,7 @@ Score this job 0–100 for the candidate above. Return ONLY valid JSON, no other
   return { ...job, ...parsed };
 }
 
+// Score all jobs in batches of 5 to respect rate limits, then sort best-first.
 export async function scoreJobs(
   jobs: Job[],
   prefs: Requirements,
@@ -89,6 +92,10 @@ export async function scoreJobs(
   return scored.sort((a, b) => b.score - a.score);
 }
 
+/**
+ * Generates a 2-3 sentence market intelligence summary from today's top matches.
+ * Used as the opening callout in the daily Notion summary page.
+ */
 export async function generateMarketSummary(
   topJobs: ScoredJob[],
   prefs: Requirements
@@ -100,12 +107,12 @@ export async function generateMarketSummary(
     .map((j) => `${j.title} at ${j.company} (score ${j.score}, ${j.salaryFit})`)
     .join("\n");
 
-  const prompt = `You are summarizing today's job market for someone searching for: ${prefs.titles.slice(0, 3).join(", ")}.
+  const prompt = `You are summarizing today's job market for someone searching for roles like ${prefs.titles.slice(0, 3).join(", ")}.
 
 Today's top ${Math.min(topJobs.length, 10)} matches:
 ${jobList}
 
-Write a 2-3 sentence market intelligence summary: what types of roles are trending, salary signal, and one actionable insight. Be direct and specific. Plain text only.`;
+Write a 2-3 sentence market intelligence summary covering: what types of roles are trending today, salary signal, and one actionable insight. Be direct and specific — no filler phrases. Return plain text only.`;
 
   try {
     const message = await client.messages.create({

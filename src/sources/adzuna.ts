@@ -1,63 +1,81 @@
-/**
- * Fetches jobs from the Adzuna API.
- * Get a free API key at developer.adzuna.com
- * Set ADZUNA_APP_ID and ADZUNA_APP_KEY in your .env
- */
+// Adzuna — free tier (500 requests/month)
+// Register at: https://developer.adzuna.com/
+// Note: do NOT use where=remote — it returns 0 results. Filter remote in post-processing.
 import type { Job } from "../types.js";
 
-const APP_ID = process.env.ADZUNA_APP_ID;
-const APP_KEY = process.env.ADZUNA_APP_KEY;
+interface AdzunaJob {
+  id: string;
+  title: string;
+  company: { display_name: string };
+  location: { display_name: string; area?: string[] };
+  redirect_url: string;
+  description: string;
+  salary_min?: number;
+  salary_max?: number;
+  created: string;
+}
 
-const SEARCH_TERMS = ["software engineer remote", "full stack engineer remote", "frontend engineer remote"];
+interface AdzunaResponse {
+  results: AdzunaJob[];
+}
+
+// Customize these search terms for your job search.
+const SEARCH_TERMS = ["software engineer", "full stack engineer", "frontend engineer"];
 
 export async function fetchAdzuna(): Promise<Job[]> {
-  if (!APP_ID || !APP_KEY) {
-    console.log("[Adzuna] Skipping — ADZUNA_APP_ID or ADZUNA_APP_KEY not set");
+  const appId = process.env.ADZUNA_APP_ID;
+  const appKey = process.env.ADZUNA_APP_KEY;
+
+  if (!appId || !appKey) {
+    console.warn("[Adzuna] Skipping — ADZUNA_APP_ID or ADZUNA_APP_KEY not set");
     return [];
   }
 
-  const results = await Promise.allSettled(
-    SEARCH_TERMS.map((term) => fetchTerm(term))
-  );
+  const results: Job[] = [];
+  const seen = new Set<string>();
 
-  const jobs: Job[] = [];
-  for (const r of results) {
-    if (r.status === "fulfilled") jobs.push(...r.value);
+  for (const term of SEARCH_TERMS) {
+    const params = new URLSearchParams({
+      app_id: appId,
+      app_key: appKey,
+      what: term,
+      results_per_page: "50",
+      sort_by: "date",
+      "content-type": "application/json",
+    });
+
+    const url = `https://api.adzuna.com/v1/api/jobs/us/search/1?${params}`;
+    const response = await fetch(url);
+    if (!response.ok) continue;
+
+    const data = (await response.json()) as AdzunaResponse;
+
+    for (const job of data.results ?? []) {
+      if (seen.has(job.id)) continue;
+      seen.add(job.id);
+
+      const locationStr = job.location.display_name.toLowerCase();
+      const isRemote =
+        locationStr.includes("remote") ||
+        job.title.toLowerCase().includes("remote") ||
+        job.description.toLowerCase().includes("remote");
+
+      results.push({
+        id: `adzuna-${job.id}`,
+        title: job.title,
+        company: job.company.display_name,
+        location: job.location.display_name,
+        remote: isRemote,
+        url: job.redirect_url,
+        description: job.description,
+        salary: job.salary_min
+          ? { min: job.salary_min, max: job.salary_max, currency: "USD" }
+          : undefined,
+        postedAt: job.created,
+        source: "Adzuna",
+      });
+    }
   }
-  return jobs;
-}
 
-async function fetchTerm(term: string): Promise<Job[]> {
-  const params = new URLSearchParams({
-    app_id: APP_ID!,
-    app_key: APP_KEY!,
-    results_per_page: "20",
-    what: term,
-    where: "us",
-    content_type: "application/json",
-    salary_min: "80000",
-    sort_by: "date",
-  });
-
-  const url = `https://api.adzuna.com/v1/api/jobs/us/search/1?${params}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-  if (!res.ok) throw new Error(`Adzuna: HTTP ${res.status}`);
-
-  const data = await res.json() as { results: any[] };
-
-  return (data.results ?? []).map((j: any): Job => ({
-    id: `adzuna-${j.id}`,
-    title: j.title ?? "",
-    company: j.company?.display_name ?? "",
-    location: j.location?.display_name ?? "",
-    remote: (j.title ?? "").toLowerCase().includes("remote") || (j.description ?? "").toLowerCase().includes("remote"),
-    url: j.redirect_url ?? "",
-    description: (j.description ?? "").slice(0, 3000),
-    salary:
-      j.salary_min
-        ? { min: Math.round(j.salary_min), max: Math.round(j.salary_max ?? j.salary_min) }
-        : undefined,
-    postedAt: j.created ? new Date(j.created).toISOString() : undefined,
-    source: "Adzuna",
-  }));
+  return results;
 }

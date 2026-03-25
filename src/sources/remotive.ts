@@ -1,29 +1,65 @@
-import { XMLParser } from "fast-xml-parser";
 import type { Job } from "../types.js";
 
-const FEED_URL = "https://remotive.com/remote-jobs/feed";
+interface RemotiveJob {
+  id: number;
+  url: string;
+  title: string;
+  company_name: string;
+  candidate_required_location: string;
+  salary: string;
+  description: string;
+  tags: string[];
+  publication_date: string;
+}
+
+interface RemotiveResponse {
+  jobs: RemotiveJob[];
+}
+
+// Customize these search terms for your job search.
+const SEARCH_TERMS = ["software engineer", "full stack developer", "frontend engineer"];
 
 export async function fetchRemotive(): Promise<Job[]> {
-  const res = await fetch(FEED_URL, { signal: AbortSignal.timeout(15_000) });
-  if (!res.ok) throw new Error(`Remotive: HTTP ${res.status}`);
+  const results: Job[] = [];
+  const seen = new Set<number>();
 
-  const xml = await res.text();
-  const parser = new XMLParser({ ignoreAttributes: false });
-  const data = parser.parse(xml);
+  for (const term of SEARCH_TERMS) {
+    const url = `https://remotive.com/api/remote-jobs?search=${encodeURIComponent(term)}&limit=50`;
+    const response = await fetch(url);
+    if (!response.ok) continue;
 
-  const items = data?.rss?.channel?.item ?? [];
-  const arr = Array.isArray(items) ? items : [items];
+    const data = (await response.json()) as RemotiveResponse;
 
-  return arr.map((item: any): Job => ({
-    id: `remotive-${item.guid ?? item.link}`,
-    title: item.title ?? "",
-    company: item["job:company_name"] ?? item.author ?? "",
-    location: item["job:job_type"] === "full_time" ? "Remote" : (item["job:candidate_required_location"] ?? "Remote"),
-    remote: true,
-    url: item.link ?? "",
-    description: (item.description ?? "").replace(/<[^>]+>/g, " ").slice(0, 3000),
-    postedAt: item.pubDate ? new Date(item.pubDate).toISOString() : undefined,
-    source: "Remotive",
-    tags: [],
-  }));
+    for (const job of data.jobs) {
+      if (seen.has(job.id)) continue;
+      seen.add(job.id);
+
+      results.push({
+        id: `remotive-${job.id}`,
+        title: job.title,
+        company: job.company_name,
+        location: job.candidate_required_location || "Remote",
+        remote: true,
+        url: job.url,
+        description: job.description,
+        salary: parseSalary(job.salary),
+        postedAt: job.publication_date,
+        source: "Remotive",
+        tags: job.tags,
+      });
+    }
+  }
+
+  return results;
+}
+
+function parseSalary(raw: string): Job["salary"] | undefined {
+  if (!raw) return undefined;
+  const numbers = raw.match(/\d[\d,]*/g);
+  if (!numbers) return undefined;
+  const parsed = numbers
+    .map((n) => parseInt(n.replace(/,/g, ""), 10))
+    .filter((n) => n > 10_000);
+  if (parsed.length === 0) return undefined;
+  return { min: parsed[0], max: parsed[1] ?? parsed[0], currency: "USD" };
 }

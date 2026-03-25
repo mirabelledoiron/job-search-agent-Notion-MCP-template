@@ -17,28 +17,37 @@ export async function writeDailySummary(summary: RunSummary): Promise<void> {
   const newJobs = top.filter((j) => !appliedUrls.has(j.url));
   const alreadyApplied = top.filter((j) => appliedUrls.has(j.url));
 
+  // Segment new jobs by salary fit for dedicated sections
   const highSalaryJobs = newJobs.filter(
     (j) => j.salaryFit === "target" || j.salaryFit === "stretch"
   );
 
   const modeLabel = summary.controlMode ? ` [${summary.controlMode}]` : "";
-  const prefsLabel = summary.preferencesSource && summary.preferencesSource !== "defaults"
-    ? ` · prefs from ${summary.preferencesSource}`
-    : "";
+  const prefsLabel = summary.preferencesSource === "notion" ? " · prefs from Notion" : "";
 
   const blocks: any[] = [
+    // ── Market Summary ──────────────────────────────────────────────────
     ...(summary.marketSummary
-      ? [callout(`Today's Market: ${summary.marketSummary}`, "i")]
+      ? [
+          callout(
+            `Today's Market: ${summary.marketSummary}`,
+            "i"
+          ),
+        ]
       : []),
 
+    // ── Run Stats ─────────────────────────────────────────────────────────
     heading("Run Summary"),
     bullet(`Date: ${summary.runAt}${modeLabel}${prefsLabel}`),
     bullet(`Sources: ${summary.sourcesSearched.join(", ")}`),
     bullet(`Total jobs found: ${summary.totalFound}`),
     bullet(`Jobs scored: ${summary.totalScored}`),
-    bullet(`Top matches: ${summary.topMatches.length}`),
+    bullet(
+      `Top matches (score >= ${top.length > 0 ? Math.min(...top.map((j) => j.score)) : "—"}): ${summary.topMatches.length}`
+    ),
     bullet(`Duration: ${(summary.durationMs / 1000).toFixed(1)}s`),
 
+    // ── Feedback summary ─────────────────────────────────────────────────
     ...(summary.feedback && (summary.feedback.relevant.length > 0 || summary.feedback.notRelevant.length > 0)
       ? [
           divider(),
@@ -53,12 +62,13 @@ export async function writeDailySummary(summary: RunSummary): Promise<void> {
         ]
       : []),
 
+    // ── Apply Queue (Notion → Agent) ──────────────────────────────────
     ...(summary.applyQueue && summary.applyQueue.length > 0
       ? [
           divider(),
           heading("Apply Queue — Action Required"),
           callout(
-            `You flagged ${summary.applyQueue.length} job(s) as "Interested" in Notion. Review and apply:`,
+            `You flagged ${summary.applyQueue.length} job(s) as "Apply" in Notion. Review and submit your applications:`,
             ">"
           ),
           ...summary.applyQueue.map((job) => bullet(job)),
@@ -66,24 +76,34 @@ export async function writeDailySummary(summary: RunSummary): Promise<void> {
       : []),
 
     divider(),
-    heading("Top Matches Today"),
-    ...(newJobs.length > 0 ? [jobTable(newJobs)] : [bullet("No new matches today.")]),
 
+    // ── Top Matches Today ─────────────────────────────────────────────
+    heading("Top Matches Today"),
+    ...(newJobs.length > 0
+      ? [jobTable(newJobs)]
+      : [bullet("No new matches today.")]),
+
+    // ── High Salary Fit ───────────────────────────────────────────────
     ...(highSalaryJobs.length > 0
       ? [
           divider(),
           heading("High Salary Fit"),
           bullet(`${highSalaryJobs.length} roles matched your target/stretch salary range:`),
           ...highSalaryJobs.map((job) =>
-            bullet(`${job.title} at ${job.company} — ${formatSalary(job)} — score ${job.score}/100`)
+            bullet(
+              `${job.title} at ${job.company} — ${formatSalary(job)} — score ${job.score}/100`
+            )
           ),
         ]
       : []),
 
     divider(),
+
+    // ── Why These Were Chosen ─────────────────────────────────────────
     heading("Why These Were Chosen"),
     ...newJobs.map((job) => reasoningBlock(job)),
 
+    // ── Already Applied ────────────────────────────────────────────────
     ...(alreadyApplied.length > 0
       ? [
           divider(),
@@ -94,6 +114,7 @@ export async function writeDailySummary(summary: RunSummary): Promise<void> {
         ]
       : []),
 
+    // ── Errors ─────────────────────────────────────────────────────────
     ...(summary.errors.length > 0
       ? [
           divider(),
@@ -108,7 +129,10 @@ export async function writeDailySummary(summary: RunSummary): Promise<void> {
     properties: {
       title: {
         title: [
-          { type: "text", text: { content: `${date} — ${summary.topMatches.length} matches` } },
+          {
+            type: "text",
+            text: { content: `${date} — ${summary.topMatches.length} matches` },
+          },
         ],
       },
     },
@@ -121,11 +145,11 @@ export async function writeDailySummary(summary: RunSummary): Promise<void> {
 async function getAppliedUrls(): Promise<Set<string>> {
   const urls = new Set<string>();
 
-  const tryQuery = async (property: string) => {
+  const tryQuery = async (property: string, value: boolean) => {
     try {
       const res = await notion.databases.query({
         database_id: IDS.jobTracker,
-        filter: { property, checkbox: { equals: true } },
+        filter: { property, checkbox: { equals: value } },
       });
       for (const page of res.results) {
         const props = (page as { properties: Record<string, { url?: string }> }).properties;
@@ -133,11 +157,15 @@ async function getAppliedUrls(): Promise<Set<string>> {
         if (url) urls.add(url);
       }
     } catch {
-      // Property doesn't exist yet — skip gracefully
+      // Property doesn't exist yet in this DB — skip gracefully
     }
   };
 
-  await Promise.all([tryQuery("Applied"), tryQuery("Wrong Fit")]);
+  await Promise.all([
+    tryQuery("Applied", true),
+    tryQuery("Wrong Fit", true),
+  ]);
+
   return urls;
 }
 
@@ -183,14 +211,32 @@ async function writeToJobTracker(
           "Link": { url: job.url },
           "Applied": { checkbox: false },
           "Date Found": { date: { start: date } },
+          // Optional fields — only written if the property exists in the DB.
+          // If it doesn't exist, Promise.allSettled catches the failure gracefully.
           "Status": { select: { name: "Found" } },
         },
+      }).catch(async () => {
+        // Status property may not exist yet — retry without it
+        return notion.pages.create({
+          parent: { database_id: IDS.jobTracker },
+          properties: {
+            "Job Title": { title: [{ type: "text", text: { content: job.title } }] },
+            "Company": { rich_text: [{ type: "text", text: { content: job.company } }] },
+            "Score": { number: job.score },
+            "Salary": { rich_text: [{ type: "text", text: { content: formatSalary(job) } }] },
+            "Salary Fit": { select: { name: job.salaryFit } },
+            "Source": { select: { name: job.source } },
+            "Link": { url: job.url },
+            "Applied": { checkbox: false },
+            "Date Found": { date: { start: date } },
+          },
+        });
       })
     )
   );
 }
 
-// ─── Block helpers ─────────────────────────────────────────────────────────
+// ─── Block helpers ────────────────────────────────────────────────────────────
 
 function heading(text: string) {
   return {

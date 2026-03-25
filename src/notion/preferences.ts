@@ -1,32 +1,33 @@
 /**
- * Loads job search preferences from the Notion Preferences database.
- * Falls back to config.json values, then built-in defaults.
+ * Loads job search preferences from a Notion Preferences database.
  *
- * Notion DB schema (created by `npm run seed`):
- *   Setting  — Title    — key name (see supported keys below)
- *   Value    — Text     — comma-separated for lists, plain number for numerics
- *   Category — Select   — for visual organisation only
- *   Active   — Checkbox — uncheck to temporarily disable a row
+ * Notion DB schema (created by `npm run seed` or manually):
+ *   Setting  — Title property  — key name (e.g. "titles", "salary_floor")
+ *   Value    — Rich text       — comma-separated for lists, plain number for numerics
+ *   Category — Select          — "Titles" | "Skills" | "Salary" | "Locations" | "Exclusions" | "Industry" | "Scoring"
+ *   Active   — Checkbox        — uncheck to temporarily disable a preference row
  *
- * Supported Setting keys:
+ * If NOTION_PREFERENCES_DB_ID is not set, or the DB is empty, or Notion is
+ * unreachable, the agent falls back to config.json, then built-in defaults.
+ *
+ * Supported setting keys:
  *   titles, exclude_titles, skills, locations, target_companies,
  *   salary_floor, salary_target_min, salary_target_max, salary_stretch,
  *   min_score, industry_target, industry_avoid
  */
 import { notion } from "./writer.js";
-import { loadConfigFileRequirements } from "../config/requirements.js";
+import { defaultRequirements, loadConfigFileRequirements } from "../config/requirements.js";
 import type { Requirements } from "../types.js";
 import type { PageObjectResponse } from "@notionhq/client/build/src/api-endpoints.js";
 
 const PREFS_DB = process.env.NOTION_PREFERENCES_DB_ID;
 
 export async function loadPreferences(): Promise<{ prefs: Requirements; source: "notion" | "config" | "defaults" }> {
-  const configPrefs = loadConfigFileRequirements();
-  const source = configPrefs ? "config" : "defaults";
-
   if (!PREFS_DB) {
     console.log("[Preferences] NOTION_PREFERENCES_DB_ID not set — using config.json / defaults.");
-    return { prefs: configPrefs, source };
+    const fromFile = loadConfigFileRequirements();
+    if (fromFile) return { prefs: fromFile, source: "config" };
+    return { prefs: deepClone(defaultRequirements), source: "defaults" };
   }
 
   try {
@@ -36,22 +37,26 @@ export async function loadPreferences(): Promise<{ prefs: Requirements; source: 
     });
 
     if (response.results.length === 0) {
-      console.log("[Preferences] Notion Preferences DB is empty — using config.json / defaults.");
-      return { prefs: configPrefs, source };
+      console.log("[Preferences] Notion Preferences DB has no active rows — using config.json / defaults.");
+      const fromFile = loadConfigFileRequirements();
+      if (fromFile) return { prefs: fromFile, source: "config" };
+      return { prefs: deepClone(defaultRequirements), source: "defaults" };
     }
 
-    const prefs = buildPreferences(response.results as PageObjectResponse[], configPrefs);
+    const prefs = buildPreferences(response.results as PageObjectResponse[]);
     console.log(`[Preferences] Loaded ${response.results.length} preference rows from Notion.`);
     return { prefs, source: "notion" };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`[Preferences] Failed to load from Notion (${msg}) — using config.json / defaults.`);
-    return { prefs: configPrefs, source };
+    const fromFile = loadConfigFileRequirements();
+    if (fromFile) return { prefs: fromFile, source: "config" };
+    return { prefs: deepClone(defaultRequirements), source: "defaults" };
   }
 }
 
-function buildPreferences(pages: PageObjectResponse[], base: Requirements): Requirements {
-  const prefs: Requirements = JSON.parse(JSON.stringify(base));
+function buildPreferences(pages: PageObjectResponse[]): Requirements {
+  const prefs = deepClone(defaultRequirements);
 
   for (const page of pages) {
     const props = page.properties as Record<string, any>;
@@ -67,20 +72,48 @@ function buildPreferences(pages: PageObjectResponse[], base: Requirements): Requ
     };
 
     switch (setting) {
-      case "titles": prefs.titles = toList(value); break;
-      case "exclude_titles": prefs.excludeTitleExact = toList(value); break;
-      case "skills": prefs.skills = toList(value); break;
-      case "locations": prefs.locations = toList(value); break;
-      case "target_companies": prefs.targetCompanies = toList(value); break;
-      case "salary_floor": prefs.salary.floor = toInt(value, prefs.salary.floor); break;
-      case "salary_target_min": prefs.salary.targetMin = toInt(value, prefs.salary.targetMin); break;
-      case "salary_target_max": prefs.salary.targetMax = toInt(value, prefs.salary.targetMax); break;
-      case "salary_stretch": prefs.salary.stretch = toInt(value, prefs.salary.stretch); break;
-      case "min_score": prefs.minScore = toInt(value, prefs.minScore); break;
-      case "industry_target": prefs.industryKeywords.target = toList(value); break;
-      case "industry_avoid": prefs.industryKeywords.avoid = toList(value); break;
+      case "titles":
+        prefs.titles = toList(value);
+        break;
+      case "exclude_titles":
+        prefs.excludeTitleExact = toList(value);
+        break;
+      case "skills":
+        prefs.skills = toList(value);
+        break;
+      case "locations":
+        prefs.locations = toList(value);
+        break;
+      case "target_companies":
+        prefs.targetCompanies = toList(value);
+        break;
+      case "salary_floor":
+        prefs.salary.floor = toInt(value, prefs.salary.floor);
+        break;
+      case "salary_target_min":
+        prefs.salary.targetMin = toInt(value, prefs.salary.targetMin);
+        break;
+      case "salary_target_max":
+        prefs.salary.targetMax = toInt(value, prefs.salary.targetMax);
+        break;
+      case "salary_stretch":
+        prefs.salary.stretch = toInt(value, prefs.salary.stretch);
+        break;
+      case "min_score":
+        prefs.minScore = toInt(value, prefs.minScore);
+        break;
+      case "industry_target":
+        prefs.industryKeywords.target = toList(value);
+        break;
+      case "industry_avoid":
+        prefs.industryKeywords.avoid = toList(value);
+        break;
     }
   }
 
   return prefs;
+}
+
+function deepClone<T>(obj: T): T {
+  return JSON.parse(JSON.stringify(obj));
 }

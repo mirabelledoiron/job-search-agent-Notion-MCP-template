@@ -1,56 +1,59 @@
-/**
- * Fetches jobs from Greenhouse ATS for companies listed in config.json.
- *
- * In config.json, add a "greenhouse" object:
- *   "greenhouse": {
- *     "Figma": "figma",
- *     "Linear": "linear",
- *     "Vercel": "vercel"
- *   }
- *
- * The value is the slug from boards.greenhouse.io/{slug}.
- * No API key required — this is the public Greenhouse job board API.
- */
 import type { Job } from "../types.js";
 import { loadAtsConfig } from "../config/requirements.js";
 
-const BASE_URL = "https://boards-api.greenhouse.io/v1/boards";
+// Company slugs are loaded from config.json.
+// To find a slug: visit boards.greenhouse.io/{slug} or check the company's careers page URL.
+// Example config.json entry: "greenhouse": { "Figma": "figma", "Stripe": "stripe" }
+
+interface GreenhouseJob {
+  id: number;
+  title: string;
+  absolute_url: string;
+  location: { name: string };
+  content: string;
+  updated_at: string;
+}
+
+interface GreenhouseResponse {
+  jobs: GreenhouseJob[];
+}
 
 export async function fetchGreenhouse(): Promise<Job[]> {
-  const { greenhouse: companies } = loadAtsConfig();
+  const { greenhouse: companySlugs } = loadAtsConfig();
 
-  if (Object.keys(companies).length === 0) {
+  if (Object.keys(companySlugs).length === 0) {
     return [];
   }
 
-  const results = await Promise.allSettled(
-    Object.entries(companies).map(([companyName, slug]) =>
-      fetchCompany(companyName, slug as string)
-    )
+  const results: Job[] = [];
+
+  await Promise.allSettled(
+    Object.entries(companySlugs).map(async ([company, slug]) => {
+      const url = `https://boards-api.greenhouse.io/v1/boards/${slug}/jobs?content=true`;
+      const response = await fetch(url);
+      if (!response.ok) return;
+
+      const data = (await response.json()) as GreenhouseResponse;
+
+      for (const job of data.jobs) {
+        const locationLower = job.location.name.toLowerCase();
+        const isRemote =
+          locationLower.includes("remote") || locationLower.includes("anywhere");
+
+        results.push({
+          id: `greenhouse-${job.id}`,
+          title: job.title,
+          company,
+          location: job.location.name,
+          remote: isRemote,
+          url: job.absolute_url,
+          description: job.content ?? "",
+          postedAt: job.updated_at,
+          source: "Greenhouse",
+        });
+      }
+    })
   );
 
-  const jobs: Job[] = [];
-  for (const r of results) {
-    if (r.status === "fulfilled") jobs.push(...r.value);
-  }
-  return jobs;
-}
-
-async function fetchCompany(companyName: string, slug: string): Promise<Job[]> {
-  const url = `${BASE_URL}/${slug}/jobs?content=true`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-  if (!res.ok) return [];
-
-  const data = await res.json() as { jobs: any[] };
-  return (data.jobs ?? []).map((j: any): Job => ({
-    id: `greenhouse-${j.id}`,
-    title: j.title ?? "",
-    company: companyName,
-    location: j.location?.name ?? "Remote",
-    remote: (j.location?.name ?? "").toLowerCase().includes("remote"),
-    url: j.absolute_url ?? "",
-    description: (j.content ?? "").replace(/<[^>]+>/g, " ").slice(0, 3000),
-    postedAt: j.updated_at ? new Date(j.updated_at).toISOString() : undefined,
-    source: "Greenhouse",
-  }));
+  return results;
 }

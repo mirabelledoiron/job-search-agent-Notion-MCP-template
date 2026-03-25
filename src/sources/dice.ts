@@ -1,6 +1,31 @@
+// Dice.com — uses their internal search API (same one the site frontend uses)
 import type { Job } from "../types.js";
 
 const DICE_API_KEY = process.env.DICE_API_KEY;
+
+interface DiceJob {
+  id: string;
+  title: string;
+  companyPageUrl: string;
+  employerName: string;
+  workplaceTypes: string[];
+  employmentType: string;
+  postedDate: string;
+  applyUrl: string;
+  location: string;
+  salary?: {
+    salaryMin?: number;
+    salaryMax?: number;
+    currency?: string;
+  };
+  jobDescription: string;
+}
+
+interface DiceResponse {
+  data: DiceJob[];
+}
+
+// Customize these search terms for your job search.
 const SEARCH_TERMS = ["software engineer", "full stack developer", "frontend engineer"];
 
 export async function fetchDice(): Promise<Job[]> {
@@ -9,72 +34,59 @@ export async function fetchDice(): Promise<Job[]> {
     return [];
   }
 
-  const results = await Promise.allSettled(
-    SEARCH_TERMS.map((term) => fetchTerm(term))
-  );
-
-  const jobs: Job[] = [];
+  const results: Job[] = [];
   const seen = new Set<string>();
 
-  for (const r of results) {
-    if (r.status === "fulfilled") {
-      for (const job of r.value) {
-        if (!seen.has(job.id)) {
-          seen.add(job.id);
-          jobs.push(job);
-        }
-      }
+  for (const term of SEARCH_TERMS) {
+    const params = new URLSearchParams({
+      q: term,
+      countryCode2: "US",
+      pageSize: "50",
+      "filters.workplaceTypes": "Remote",
+      "filters.postedDate": "ONE_WEEK",
+      language: "en",
+    });
+
+    const url = `https://job-search-api.svc.dhigroupinc.com/v1/dice/jobs/search?${params}`;
+    const response = await fetch(url, {
+      headers: {
+        "x-api-key": DICE_API_KEY,
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!response.ok) continue;
+
+    const data = (await response.json()) as DiceResponse;
+
+    for (const job of data.data ?? []) {
+      if (seen.has(job.id)) continue;
+      seen.add(job.id);
+
+      const isRemote = job.workplaceTypes?.some((t) =>
+        t.toLowerCase().includes("remote")
+      );
+
+      results.push({
+        id: `dice-${job.id}`,
+        title: job.title,
+        company: job.employerName,
+        location: job.location || "Remote",
+        remote: isRemote ?? false,
+        url: job.applyUrl || `https://www.dice.com/jobs/detail/${job.id}`,
+        description: job.jobDescription ?? "",
+        salary: job.salary?.salaryMin
+          ? {
+              min: job.salary.salaryMin,
+              max: job.salary.salaryMax,
+              currency: job.salary.currency ?? "USD",
+            }
+          : undefined,
+        postedAt: job.postedDate,
+        source: "Dice",
+      });
     }
   }
-  return jobs;
-}
 
-async function fetchTerm(query: string): Promise<Job[]> {
-  const params = new URLSearchParams({
-    q: query,
-    countryCode: "US",
-    radius: "30",
-    radiusUnit: "mi",
-    page: "1",
-    pageSize: "20",
-    "filters.postedDate": "ONE_WEEK",
-    "filters.workplaceTypes": "Remote",
-    language: "en",
-    eid: "search",
-  });
-
-  const url = `https://job-search-api.svc.dhigroupinc.com/v1/dice/jobs/search?${params}`;
-  const res = await fetch(url, {
-    headers: {
-      "x-api-key": DICE_API_KEY!,
-      "User-Agent": "Mozilla/5.0",
-    },
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!res.ok) throw new Error(`Dice: HTTP ${res.status}`);
-
-  const data = await res.json() as { data: any[] };
-
-  return (data.data ?? []).map((j: any): Job => {
-    const salary = parseSalary(j.salary);
-    return {
-      id: `dice-${j.id}`,
-      title: j.title ?? "",
-      company: j.companyPageUrl ? j.companyPageUrl.split("/").pop() ?? "" : (j.advertiserName ?? ""),
-      location: j.location ?? "Remote",
-      remote: (j.workplaceTypes ?? []).includes("Remote") || (j.location ?? "").toLowerCase().includes("remote"),
-      url: j.applyDataRequired ? `https://www.dice.com/job-detail/${j.id}` : (j.applyUrl ?? `https://www.dice.com/job-detail/${j.id}`),
-      description: (j.descriptionFragment ?? j.summary ?? "").slice(0, 3000),
-      salary,
-      postedAt: j.postedDate ? new Date(j.postedDate).toISOString() : undefined,
-      source: "Dice",
-    };
-  });
-}
-
-function parseSalary(raw: string | undefined): Job["salary"] {
-  if (!raw) return undefined;
-  const nums = raw.replace(/[$,K]/gi, (m) => m === "K" ? "000" : "").match(/\d+/g);
-  if (!nums) return undefined;
-  return { min: parseInt(nums[0], 10), max: parseInt(nums[1] ?? nums[0], 10) };
+  return results;
 }

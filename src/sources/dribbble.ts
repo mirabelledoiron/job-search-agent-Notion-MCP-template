@@ -1,40 +1,72 @@
+// Dribbble Jobs — HTML scraper.
+// Each job card: li > a[href^="/jobs/"] > img, div (company), h4 (title), div (location)
 import * as cheerio from "cheerio";
 import type { Job } from "../types.js";
 
-const URL = "https://dribbble.com/jobs?location=Anywhere&specialization=front-end-engineering";
+// Customize these search terms for your job search.
+const SEARCH_TERMS = [
+  "software engineer",
+  "frontend engineer",
+  "full stack developer",
+];
+
+const BASE = "https://dribbble.com";
+
+const HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  Accept: "text/html,application/xhtml+xml",
+  "Accept-Language": "en-US,en;q=0.9",
+};
 
 export async function fetchDribbble(): Promise<Job[]> {
-  const res = await fetch(URL, {
-    headers: { "User-Agent": "Mozilla/5.0 (compatible; job-search-agent/1.0)" },
-    signal: AbortSignal.timeout(20_000),
-  });
-  if (!res.ok) throw new Error(`Dribbble: HTTP ${res.status}`);
+  const results: Job[] = [];
+  const seen = new Set<string>();
 
-  const html = await res.text();
-  const $ = cheerio.load(html);
-  const jobs: Job[] = [];
+  for (const term of SEARCH_TERMS) {
+    const pageUrl = `${BASE}/jobs?q=${encodeURIComponent(term)}&location=Anywhere&remote=true`;
 
-  $(".job-listing, [class*='job-board'] li, .listing-item").each((_, el) => {
-    const $el = $(el);
-    const title = $el.find("h2, h3, [class*='title']").first().text().trim();
-    const company = $el.find("[class*='company'], [class*='studio']").first().text().trim();
-    const location = $el.find("[class*='location']").first().text().trim();
-    const href = $el.find("a").attr("href") ?? "";
-    const url = href.startsWith("http") ? href : `https://dribbble.com${href}`;
+    let response: Response;
+    try {
+      response = await fetch(pageUrl, { headers: HEADERS });
+    } catch {
+      continue;
+    }
 
-    if (title && url && url !== "https://dribbble.com") {
-      jobs.push({
-        id: `dribbble-${url}`,
+    if (!response.ok) continue;
+
+    const html = await response.text();
+    const $ = cheerio.load(html);
+
+    $('li a[href^="/jobs/"]').each((_, el) => {
+      const card = $(el);
+      const href = card.attr("href")?.split("?")[0] ?? "";
+      if (!href || seen.has(href)) return;
+      seen.add(href);
+
+      const title = card.find("h4").first().text().trim();
+      if (!title) return;
+
+      // div elements in order: company name, location
+      const divs = card.find("div").map((_, d) => $(d).text().trim()).get().filter(Boolean);
+      const company = divs[0] ?? "Unknown";
+      const location = divs[1] ?? "Remote";
+
+      const isRemote = location.toLowerCase().includes("remote") || location.toLowerCase() === "anywhere";
+      const jobId = href.split("/jobs/")[1]?.split("-")[0] ?? href.slice(-8);
+
+      results.push({
+        id: `dribbble-${jobId}`,
         title,
         company,
-        location: location || "Anywhere",
-        remote: location.toLowerCase().includes("anywhere") || location.toLowerCase().includes("remote") || !location,
-        url,
-        description: $el.text().slice(0, 1000),
+        location,
+        remote: isRemote,
+        url: `${BASE}${href}`,
+        description: "",
         source: "Dribbble",
       });
-    }
-  });
+    });
+  }
 
-  return jobs;
+  return results;
 }

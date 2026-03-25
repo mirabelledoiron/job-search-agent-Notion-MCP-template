@@ -1,62 +1,94 @@
-/**
- * Fetches jobs from Ashby ATS for companies listed in config.json.
- *
- * In config.json, add an "ashby" object:
- *   "ashby": {
- *     "Notion": "notion",
- *     "Loom": "loom"
- *   }
- *
- * The value is the slug from jobs.ashbyhq.com/{slug}.
- * No API key required.
- */
+// Ashby ATS — public job board API
+// These companies are on Ashby. Returns 0 when they have no open roles,
+// activates automatically when they start hiring.
+// Company slugs are loaded from config.json.
 import type { Job } from "../types.js";
 import { loadAtsConfig } from "../config/requirements.js";
 
-const BASE_URL = "https://api.ashbyhq.com/posting-api/job-board";
+interface AshbyPosting {
+  id: string;
+  title: string;
+  publishedAt: string;
+  isRemote: boolean;
+  workplaceType: string;
+  location?: string;
+  address?: { city?: string; region?: string; countryCode?: string };
+  secondaryLocations?: { isRemote?: boolean }[];
+  jobUrl: string;
+  applyUrl: string;
+  descriptionPlain: string;
+  compensation?: {
+    summaryComponents?: { label: string; compensationTierSummary: string }[];
+  };
+}
+
+interface AshbyResponse {
+  jobPostings: AshbyPosting[];
+}
 
 export async function fetchAshby(): Promise<Job[]> {
-  const { ashby: companies } = loadAtsConfig();
+  const { ashby: companySlugs } = loadAtsConfig();
 
-  if (Object.keys(companies).length === 0) {
+  if (Object.keys(companySlugs).length === 0) {
     return [];
   }
 
-  const results = await Promise.allSettled(
-    Object.entries(companies).map(([companyName, slug]) =>
-      fetchCompany(companyName, slug as string)
-    )
+  const results: Job[] = [];
+
+  await Promise.allSettled(
+    Object.entries(companySlugs).map(async ([company, slug]) => {
+      const res = await fetch(
+        `https://api.ashbyhq.com/posting-api/job-board/${slug}?includeCompensation=true`
+      );
+      if (!res.ok) return;
+
+      const text = await res.text();
+      if (!text.startsWith("{")) return;
+
+      const data = JSON.parse(text) as AshbyResponse;
+
+      for (const posting of data.jobPostings ?? []) {
+        const isRemote =
+          posting.isRemote ||
+          posting.workplaceType?.toLowerCase() === "remote" ||
+          posting.secondaryLocations?.some((l) => l.isRemote) ||
+          false;
+
+        const location =
+          posting.address?.city
+            ? `${posting.address.city}, ${posting.address.region ?? ""}`.trim()
+            : isRemote
+            ? "Remote"
+            : "Unknown";
+
+        const salary = parseSalary(posting.compensation);
+
+        results.push({
+          id: `ashby-${posting.id}`,
+          title: posting.title,
+          company,
+          location,
+          remote: isRemote,
+          url: posting.jobUrl ?? posting.applyUrl,
+          description: posting.descriptionPlain ?? "",
+          salary,
+          postedAt: posting.publishedAt,
+          source: "Ashby",
+        });
+      }
+    })
   );
 
-  const jobs: Job[] = [];
-  for (const r of results) {
-    if (r.status === "fulfilled") jobs.push(...r.value);
-  }
-  return jobs;
+  return results;
 }
 
-async function fetchCompany(companyName: string, slug: string): Promise<Job[]> {
-  const url = `${BASE_URL}/${slug}?includeCompensation=true`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-  if (!res.ok) return [];
-
-  const data = await res.json() as { jobs: any[] };
-  return (data.jobs ?? []).map((j: any): Job => {
-    const comp = j.compensation;
-    return {
-      id: `ashby-${j.id}`,
-      title: j.title ?? "",
-      company: companyName,
-      location: j.location ?? "Remote",
-      remote: (j.location ?? "").toLowerCase().includes("remote") || j.isRemote === true,
-      url: j.jobUrl ?? `https://jobs.ashbyhq.com/${slug}/${j.id}`,
-      description: (j.descriptionHtml ?? j.description ?? "").replace(/<[^>]+>/g, " ").slice(0, 3000),
-      salary:
-        comp?.minValue
-          ? { min: comp.minValue, max: comp.maxValue ?? comp.minValue, currency: comp.currency ?? "USD" }
-          : undefined,
-      postedAt: j.publishedDate ? new Date(j.publishedDate).toISOString() : undefined,
-      source: "Ashby",
-    };
-  });
+function parseSalary(
+  comp: AshbyPosting["compensation"]
+): Job["salary"] | undefined {
+  const summary = comp?.summaryComponents?.[0]?.compensationTierSummary ?? "";
+  const numbers = summary.match(/[\d,]+/g);
+  if (!numbers) return undefined;
+  const vals = numbers.map((n) => parseInt(n.replace(/,/g, ""), 10)).filter((n) => n > 10_000);
+  if (vals.length === 0) return undefined;
+  return { min: vals[0], max: vals[1] ?? vals[0], currency: "USD" };
 }

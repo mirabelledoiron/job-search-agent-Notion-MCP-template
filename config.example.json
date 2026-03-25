@@ -45,11 +45,15 @@
   "minScore": 60,
   "greenhouse": {
     "Figma": "figma",
-    "Linear": "linear",
-    "Vercel": "vercel"
+    "Vercel": "vercel",
+    "Stripe": "stripe"
   },
   "ashby": {
+    "Linear": "linear",
+    "Supabase": "supabase"
+  },
+  "lever": {
     "Notion": "notion",
-    "Loom": "loom"
+    "Webflow": "webflow"
   }
 }

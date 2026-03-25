@@ -10,6 +10,9 @@ import { fetchDice } from "./sources/dice.js";
 import { fetchWorkAtAStartup } from "./sources/workatastartup.js";
 import { fetchTalent } from "./sources/talent.js";
 import { fetchDribbble } from "./sources/dribbble.js";
+import { fetchHiringCafe } from "./sources/hiringcafe.js";
+import { fetchLever } from "./sources/lever.js";
+import { fetchUXEngineer } from "./sources/uxengineer.js";
 import { scoreJobs, generateMarketSummary } from "./matching/scorer.js";
 import { writeDailySummary } from "./notion/writer.js";
 import { loadPreferences } from "./notion/preferences.js";
@@ -31,6 +34,9 @@ const SOURCES = [
   { name: "YC Work at a Startup", fetch: fetchWorkAtAStartup },
   { name: "Talent.com", fetch: fetchTalent },
   { name: "Dribbble", fetch: fetchDribbble },
+  { name: "HiringCafe", fetch: fetchHiringCafe },
+  { name: "Lever", fetch: fetchLever },
+  { name: "UX Engineer", fetch: fetchUXEngineer },
 ];
 
 async function run(): Promise<void> {
@@ -39,26 +45,26 @@ async function run(): Promise<void> {
 
   console.log(`[${runAt}] Starting job search run`);
 
-  // ── Step 1: Check Notion control panel ───────────────────────────────────
+  // ── Step 1: Read Notion control panel ─────────────────────────────────────
   const control = await readAgentControl();
   if (!control.shouldRun) {
-    console.log("Run skipped — agent is paused in Notion control panel.");
+    console.log("Run skipped per Notion control panel. Set Run Agent = true to re-enable.");
     process.exit(0);
   }
 
-  // ── Step 2: Load preferences (Notion → config.json → defaults) ───────────
+  // ── Step 2: Load preferences from Notion (or fall back to config.json / defaults) ──
   const { prefs, source: preferencesSource } = await loadPreferences();
   console.log(
     `[Preferences] titles=${prefs.titles.length}, skills=${prefs.skills.length}, minScore=${prefs.minScore}`
   );
 
-  // ── Step 3: Read user feedback to improve scoring ─────────────────────────
+  // ── Step 3: Read user feedback to inform scoring ──────────────────────────
   const feedback = await readUserFeedback();
 
   // ── Step 4: Read apply queue (Notion → Agent trigger) ────────────────────
   const applyQueue = await readApplyQueue();
 
-  // ── Step 5: Fetch all sources concurrently ────────────────────────────────
+  // ── Step 5: Fetch all job sources concurrently ────────────────────────────
   const errors: RunSummary["errors"] = [];
   const allJobs: Job[] = [];
 
@@ -71,7 +77,8 @@ async function run(): Promise<void> {
       console.log(`  ${source.name}: ${result.value.length} jobs`);
       allJobs.push(...result.value);
     } else {
-      const message = result.reason instanceof Error ? result.reason.message : String(result.reason);
+      const message =
+        result.reason instanceof Error ? result.reason.message : String(result.reason);
       console.warn(`  ${source.name}: failed — ${message}`);
       errors.push({ source: source.name, error: message });
     }
@@ -80,7 +87,9 @@ async function run(): Promise<void> {
   // ── Step 6: Dedupe → filter → score ───────────────────────────────────────
   const unique = deduplicateJobs(allJobs);
   const relevant = filterByRequirements(unique, prefs);
-  console.log(`\nTotal: ${allJobs.length} found → ${unique.length} unique → ${relevant.length} relevant`);
+  console.log(
+    `\nTotal: ${allJobs.length} found → ${unique.length} unique → ${relevant.length} relevant`
+  );
 
   console.log(`Scoring ${relevant.length} jobs with Claude...`);
   const scored = await scoreJobs(relevant, prefs, feedback);
@@ -110,7 +119,7 @@ async function run(): Promise<void> {
   console.log("Writing to Notion...");
   await writeDailySummary(summary);
 
-  // ── Step 9: Update control panel ─────────────────────────────────────────
+  // ── Step 9: Update control panel with run stats ───────────────────────────
   if (control.pageId) {
     const stats = `${topMatches.length} matches from ${allJobs.length} jobs · ${(summary.durationMs / 1000).toFixed(1)}s · ${new Date(runAt).toUTCString()}`;
     await updateControlAfterRun(control.pageId, stats);

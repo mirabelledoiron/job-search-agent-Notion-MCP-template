@@ -1,43 +1,65 @@
 import { XMLParser } from "fast-xml-parser";
 import type { Job } from "../types.js";
 
-const FEEDS = [
+const RSS_FEEDS = [
   "https://weworkremotely.com/categories/remote-programming-jobs.rss",
   "https://weworkremotely.com/categories/remote-design-jobs.rss",
-  "https://weworkremotely.com/categories/remote-full-stack-programming-jobs.rss",
 ];
+
+interface RSSItem {
+  title: string;
+  link: string | string[];
+  "company-name"?: string;
+  region?: string;
+  description?: string;
+  pubDate?: string;
+}
+
+interface RSSChannel {
+  item: RSSItem | RSSItem[];
+}
+
+interface RSSRoot {
+  rss: { channel: RSSChannel };
+}
 
 export async function fetchWeWorkRemotely(): Promise<Job[]> {
   const parser = new XMLParser({ ignoreAttributes: false });
-  const results = await Promise.allSettled(
-    FEEDS.map(async (url) => {
-      const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-      if (!res.ok) throw new Error(`WWR: HTTP ${res.status}`);
-      const xml = await res.text();
-      const data = parser.parse(xml);
-      const items = data?.rss?.channel?.item ?? [];
-      return Array.isArray(items) ? items : [items];
-    })
-  );
+  const results: Job[] = [];
 
-  const allItems: any[] = [];
-  for (const r of results) {
-    if (r.status === "fulfilled") allItems.push(...r.value);
+  for (const feedUrl of RSS_FEEDS) {
+    const response = await fetch(feedUrl);
+    if (!response.ok) continue;
+
+    const xml = await response.text();
+    const parsed = parser.parse(xml) as RSSRoot;
+    const rawItems = parsed?.rss?.channel?.item;
+    const items: RSSItem[] = Array.isArray(rawItems) ? rawItems : rawItems ? [rawItems] : [];
+
+    for (const item of items) {
+      // WWR title format: "Company Name: Job Title"
+      const parts = item.title?.split(": ") ?? [];
+      const company = item["company-name"] ?? parts[0] ?? "Unknown";
+      const title = parts.slice(1).join(": ") || item.title || "";
+
+      results.push({
+        id: `wwr-${Buffer.from(item.title ?? "").toString("base64").slice(0, 16)}`,
+        title,
+        company,
+        location: item.region || "Worldwide",
+        remote: true,
+        url: extractLink(item.link),
+        description: item.description ?? "",
+        postedAt: item.pubDate,
+        source: "We Work Remotely",
+      });
+    }
   }
 
-  return allItems.map((item: any): Job => {
-    const title = (item.title ?? "").replace(/^[^:]+:\s*/, "");
-    const company = (item.title ?? "").split(":")[0]?.trim() ?? "";
-    return {
-      id: `wwr-${item.guid ?? item.link}`,
-      title,
-      company,
-      location: "Remote",
-      remote: true,
-      url: item.link ?? "",
-      description: (item.description ?? "").replace(/<[^>]+>/g, " ").slice(0, 3000),
-      postedAt: item.pubDate ? new Date(item.pubDate).toISOString() : undefined,
-      source: "We Work Remotely",
-    };
-  });
+  return results;
+}
+
+function extractLink(link: string | string[] | undefined): string {
+  if (Array.isArray(link)) return link[0] ?? "";
+  return link ?? "";
 }

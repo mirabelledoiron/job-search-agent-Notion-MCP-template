@@ -6,90 +6,106 @@
  *   2. config.json (if present)
  *   3. Built-in defaults (fallback — very generic, you should customize)
  *
- * To configure: copy config.example.json → config.json and edit it.
+ * To configure: copy config.example.json to config.json and edit it.
  * Or add rows to your Notion Preferences DB — those always win.
  */
-import { readFileSync, existsSync } from "fs";
-import { resolve } from "path";
+import { readFileSync, existsSync } from "node:fs";
 import type { Requirements } from "../types.js";
 
-const CONFIG_PATH = resolve(process.cwd(), "config.json");
-
+// Built-in defaults — used when no config.json exists and Notion Preferences DB is not set.
+// These are intentionally generic. Copy config.example.json to config.json to customize,
+// or set up the Notion Preferences DB (see README).
 export const defaultRequirements: Requirements = {
-  titles: ["Software Engineer", "Full Stack Engineer"],
-  excludeTitleExact: ["intern", "junior"],
+  titles: [
+    "Software Engineer",
+    "Full Stack Engineer",
+  ],
+
+  excludeTitleExact: [],
+
   salary: {
     floor: 100_000,
     targetMin: 130_000,
     targetMax: 170_000,
     stretch: 190_000,
   },
+
   remote: true,
   locations: ["remote", "us", "usa", "united states", "anywhere", "worldwide"],
-  skills: ["TypeScript", "React", "Node.js"],
+
+  skills: [
+    "TypeScript",
+    "React",
+    "Node.js",
+  ],
+
   targetCompanies: [],
+
   industryKeywords: {
     target: ["saas", "ai", "dev tools"],
     avoid: [],
   },
+
   minScore: 60,
 };
 
-function loadFromConfigFile(): Requirements | null {
-  if (!existsSync(CONFIG_PATH)) return null;
+// Backward-compatible alias used by modules that haven't been updated yet.
+export const requirements = defaultRequirements;
+
+/**
+ * Loads config.json if it exists. Returns null if not found.
+ */
+export function loadConfigFileRequirements(): Requirements | null {
+  const path = "config.json";
+  if (!existsSync(path)) {
+    console.log("[Config] No config.json found — using built-in defaults. Copy config.example.json to config.json to customize.");
+    return null;
+  }
 
   try {
-    const raw = readFileSync(CONFIG_PATH, "utf8");
-    const cfg = JSON.parse(raw);
-
+    const raw = JSON.parse(readFileSync(path, "utf-8"));
+    console.log("[Config] Loaded job criteria from config.json.");
     return {
-      titles: cfg.titles ?? defaultRequirements.titles,
-      excludeTitleExact: cfg.excludeTitles ?? defaultRequirements.excludeTitleExact,
+      titles: raw.titles ?? defaultRequirements.titles,
+      excludeTitleExact: raw.excludeTitles ?? defaultRequirements.excludeTitleExact,
       salary: {
-        floor: cfg.salary?.floor ?? defaultRequirements.salary.floor,
-        targetMin: cfg.salary?.targetMin ?? defaultRequirements.salary.targetMin,
-        targetMax: cfg.salary?.targetMax ?? defaultRequirements.salary.targetMax,
-        stretch: cfg.salary?.stretch ?? defaultRequirements.salary.stretch,
+        floor: raw.salary?.floor ?? defaultRequirements.salary.floor,
+        targetMin: raw.salary?.targetMin ?? defaultRequirements.salary.targetMin,
+        targetMax: raw.salary?.targetMax ?? defaultRequirements.salary.targetMax,
+        stretch: raw.salary?.stretch ?? defaultRequirements.salary.stretch,
       },
-      remote: cfg.remote ?? defaultRequirements.remote,
-      locations: cfg.locations ?? defaultRequirements.locations,
-      skills: cfg.skills ?? defaultRequirements.skills,
-      targetCompanies: cfg.targetCompanies ?? defaultRequirements.targetCompanies,
+      remote: raw.remote ?? defaultRequirements.remote,
+      locations: raw.locations ?? defaultRequirements.locations,
+      skills: raw.skills ?? defaultRequirements.skills,
+      targetCompanies: raw.targetCompanies ?? defaultRequirements.targetCompanies,
       industryKeywords: {
-        target: cfg.industryKeywords?.target ?? defaultRequirements.industryKeywords.target,
-        avoid: cfg.industryKeywords?.avoid ?? defaultRequirements.industryKeywords.avoid,
+        target: raw.industryKeywords?.target ?? defaultRequirements.industryKeywords.target,
+        avoid: raw.industryKeywords?.avoid ?? defaultRequirements.industryKeywords.avoid,
       },
-      minScore: cfg.minScore ?? defaultRequirements.minScore,
+      minScore: raw.minScore ?? defaultRequirements.minScore,
     };
   } catch (err) {
-    console.warn(`[Config] Failed to parse config.json: ${err} — using defaults.`);
+    console.warn(`[Config] Failed to parse config.json: ${err}`);
     return null;
   }
 }
 
-export function loadConfigFileRequirements(): Requirements {
-  const fromFile = loadFromConfigFile();
-  if (fromFile) {
-    console.log("[Config] Loaded job criteria from config.json.");
-    return fromFile;
-  }
-  console.log("[Config] No config.json found — using built-in defaults. Copy config.example.json → config.json to customize.");
-  return { ...defaultRequirements };
-}
+/**
+ * Loads ATS company slugs from config.json for Greenhouse, Ashby, and Lever sources.
+ */
+export function loadAtsConfig(): { greenhouse: Record<string, string>; ashby: Record<string, string>; lever: Record<string, string> } {
+  const defaults = { greenhouse: {}, ashby: {}, lever: {} };
+  const path = "config.json";
+  if (!existsSync(path)) return defaults;
 
-// Greenhouse and Ashby company slugs from config.json
-export function loadAtsConfig(): { greenhouse: Record<string, string>; ashby: Record<string, string> } {
-  if (!existsSync(CONFIG_PATH)) return { greenhouse: {}, ashby: {} };
   try {
-    const cfg = JSON.parse(readFileSync(CONFIG_PATH, "utf8"));
+    const raw = JSON.parse(readFileSync(path, "utf-8"));
     return {
-      greenhouse: cfg.greenhouse ?? {},
-      ashby: cfg.ashby ?? {},
+      greenhouse: raw.greenhouse ?? {},
+      ashby: raw.ashby ?? {},
+      lever: raw.lever ?? {},
     };
   } catch {
-    return { greenhouse: {}, ashby: {} };
+    return defaults;
   }
 }
-
-// Backward-compatible alias
-export const requirements = defaultRequirements;

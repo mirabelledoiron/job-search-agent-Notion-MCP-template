@@ -1,29 +1,42 @@
 import type { Job } from "../types.js";
 
-const API_URL = "https://remoteok.com/api";
+interface RemoteOKJob {
+  id: string;
+  url: string;
+  position: string;
+  company: string;
+  location: string;
+  description: string;
+  tags: string[];
+  salary_min?: number;
+  salary_max?: number;
+  date: string;
+  slug: string;
+}
 
 export async function fetchRemoteOK(): Promise<Job[]> {
-  const res = await fetch(API_URL, {
-    headers: { "User-Agent": "job-search-agent/1.0" },
-    signal: AbortSignal.timeout(15_000),
+  const response = await fetch("https://remoteok.com/api", {
+    headers: { "User-Agent": "job-search-agent/1.0 (personal job search tool)" },
   });
-  if (!res.ok) throw new Error(`RemoteOK: HTTP ${res.status}`);
 
-  const data = await res.json() as any[];
-  // First item is a legal notice object — skip it
-  const jobs = data.slice(1).filter((j: any) => j.position && j.company);
+  if (!response.ok) return [];
 
-  return jobs.map((j: any): Job => ({
-    id: `remoteok-${j.id ?? j.slug}`,
-    title: j.position ?? "",
-    company: j.company ?? "",
-    location: "Remote",
+  const data = (await response.json()) as RemoteOKJob[];
+  const jobs = data.slice(1).filter((job) => job.position);
+
+  return jobs.map((job) => ({
+    id: `remoteok-${job.id}`,
+    title: job.position,
+    company: job.company,
+    location: job.location || "Remote",
     remote: true,
-    url: j.url ?? `https://remoteok.io/l/${j.slug}`,
-    description: (j.description ?? "").replace(/<[^>]+>/g, " ").slice(0, 3000),
-    salary: j.salary_min ? { min: Number(j.salary_min), max: Number(j.salary_max ?? j.salary_min) } : undefined,
-    postedAt: j.date ? new Date(j.date).toISOString() : undefined,
+    url: job.url || `https://remoteok.com/remote-jobs/${job.slug}`,
+    description: job.description || "",
+    salary: job.salary_min
+      ? { min: job.salary_min, max: job.salary_max, currency: "USD" }
+      : undefined,
+    postedAt: job.date,
     source: "RemoteOK",
-    tags: Array.isArray(j.tags) ? j.tags : [],
+    tags: job.tags,
   }));
 }
