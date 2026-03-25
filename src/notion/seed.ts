@@ -19,11 +19,11 @@ const notion = new Client({ auth: process.env.NOTION_TOKEN });
 
 async function seed(): Promise<void> {
   if (!process.env.NOTION_TOKEN) {
-    console.error("❌ NOTION_TOKEN is not set. Add it to your .env file first.");
+    console.error("Error: NOTION_TOKEN is not set. Add it to your .env file first.");
     process.exit(1);
   }
 
-  console.log("🌱 Setting up Notion databases for your job search agent...\n");
+  console.log("Setting up Notion databases for your job search agent...\n");
 
   // ── 1. Find a parent page to put everything under ─────────────────────────
   // We create a root page in the user's workspace first
@@ -39,7 +39,7 @@ async function seed(): Promise<void> {
           object: "block",
           type: "callout",
           callout: {
-            icon: { type: "emoji", emoji: "🤖" },
+            icon: { type: "emoji", emoji: ">" },
             rich_text: [{
               type: "text",
               text: { content: "This workspace is managed by your Job Search Agent. Daily summaries appear as child pages. Your Job Tracker and Preferences databases are linked below." },
@@ -49,10 +49,10 @@ async function seed(): Promise<void> {
       ],
     });
     rootPageId = root.id;
-    console.log(`✅ Created root page: Job Search Agent (${rootPageId})`);
+    console.log(`Created root page: Job Search Agent (${rootPageId})`);
   } catch (err: any) {
     // Some workspaces don't allow workspace-level pages — use a fallback message
-    console.error("❌ Could not create a root page in your workspace.");
+    console.error("Error: Could not create a root page in your workspace.");
     console.error("   This usually means your integration doesn't have 'Insert content' permission.");
     console.error("   Fix: Go to notion.so/my-integrations → your integration → Capabilities → enable 'Insert content'.");
     console.error(`   Error: ${err.message}`);
@@ -67,7 +67,7 @@ async function seed(): Promise<void> {
     },
   });
   const dailySummariesId = dailySummaries.id;
-  console.log(`✅ Created Daily Summaries page (${dailySummariesId})`);
+  console.log(`Created Daily Summaries page (${dailySummariesId})`);
 
   // ── 3. Job Tracker database ───────────────────────────────────────────────
   const jobTracker = await notion.databases.create({
@@ -114,7 +114,7 @@ async function seed(): Promise<void> {
     },
   });
   const jobTrackerId = jobTracker.id;
-  console.log(`✅ Created Job Tracker database (${jobTrackerId})`);
+  console.log(`Created Job Tracker database (${jobTrackerId})`);
 
   // ── 4. Preferences database ───────────────────────────────────────────────
   const preferencesDb = await notion.databases.create({
@@ -141,7 +141,7 @@ async function seed(): Promise<void> {
     },
   });
   const preferencesId = preferencesDb.id;
-  console.log(`✅ Created Job Search Preferences database (${preferencesId})`);
+  console.log(`Created Job Search Preferences database (${preferencesId})`);
 
   // ── 5. Seed default preference rows ──────────────────────────────────────
   const defaultPrefs = [
@@ -172,7 +172,7 @@ async function seed(): Promise<void> {
       })
     )
   );
-  console.log(`✅ Seeded ${defaultPrefs.length} default preference rows`);
+  console.log(`Seeded ${defaultPrefs.length} default preference rows`);
 
   // ── 6. Control Panel database ─────────────────────────────────────────────
   const controlDb = await notion.databases.create({
@@ -205,17 +205,17 @@ async function seed(): Promise<void> {
       "Mode": { select: { name: "daily" } },
     },
   });
-  console.log(`✅ Created Agent Control Panel database (${controlId})`);
+  console.log(`Created Agent Control Panel database (${controlId})`);
 
   // ── 7. Print results ──────────────────────────────────────────────────────
   console.log("\n" + "─".repeat(60));
-  console.log("🎉 Setup complete! Add these to your .env and GitHub secrets:\n");
+  console.log("Setup complete! Add these to your .env and GitHub secrets:\n");
   console.log(`NOTION_DAILY_SUMMARIES_PAGE_ID=${dailySummariesId}`);
   console.log(`NOTION_JOB_TRACKER_DB_ID=${jobTrackerId}`);
   console.log(`NOTION_PREFERENCES_DB_ID=${preferencesId}`);
   console.log(`NOTION_CONTROL_DB_ID=${controlId}`);
   console.log("\n" + "─".repeat(60));
-  console.log("\n📝 Next steps:");
+  console.log("\nNext steps:");
   console.log("  1. Copy the IDs above into your .env");
   console.log("  2. Edit your preferences in the 'Job Search Preferences' database in Notion");
   console.log("  3. Run: npm run dev");

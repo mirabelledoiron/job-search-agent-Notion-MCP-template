@@ -208,15 +208,15 @@ Set `NOTION_CONTROL_DB_ID` in your `.env` to enable.
 
 Each morning you get a new Notion page with:
 
-- **💡 Market Summary** — Claude's 2-3 sentence market intelligence for the day
+- **Market Summary** — Claude's 2-3 sentence market intelligence for the day
 - **Run Stats** — sources searched, jobs found, scored, duration
-- **💡 Feedback Insights** — what was learned from your Relevant/Not Relevant signals
-- **📬 Apply Queue** — jobs you flagged as Interested in Notion
-- **🏆 Top Matches Today** — scored table with links
-- **💰 High Salary Fit** — subset matching your target/stretch range
-- **🧠 Why These Were Chosen** — Claude's one-line reasoning per job
-- **✅ Already Applied** — matched jobs you've already applied to
-- **⚠️ Source Errors** — any sources that failed
+- **Feedback Insights** — what was learned from your Relevant/Not Relevant signals
+- **Apply Queue** — jobs you flagged as Interested in Notion
+- **Top Matches Today** — scored table with links
+- **High Salary Fit** — subset matching your target/stretch range
+- **Why These Were Chosen** — Claude's one-line reasoning per job
+- **Already Applied** — matched jobs you've already applied to
+- **Source Errors** — any sources that failed
 
 ---
 

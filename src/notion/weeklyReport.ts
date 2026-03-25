@@ -57,7 +57,7 @@ async function generateWeeklyReport(): Promise<void> {
         object: "block",
         type: "callout",
         callout: {
-          icon: { type: "emoji", emoji: "📋" },
+          icon: { type: "emoji", emoji: ">" },
           rich_text: [{
             type: "text",
             text: { content: `${jobs.length} applications for the week of ${weekStart} – ${weekEnd}.` },

@@ -1,6 +1,6 @@
 import type { Job } from "../types.js";
 
-const API_URL = "https://remoteok.io/api";
+const API_URL = "https://remoteok.com/api";
 
 export async function fetchRemoteOK(): Promise<Job[]> {
   const res = await fetch(API_URL, {
@@ -22,7 +22,7 @@ export async function fetchRemoteOK(): Promise<Job[]> {
     url: j.url ?? `https://remoteok.io/l/${j.slug}`,
     description: (j.description ?? "").replace(/<[^>]+>/g, " ").slice(0, 3000),
     salary: j.salary_min ? { min: Number(j.salary_min), max: Number(j.salary_max ?? j.salary_min) } : undefined,
-    postedAt: j.date ? new Date(j.date * 1000).toISOString() : undefined,
+    postedAt: j.date ? new Date(j.date).toISOString() : undefined,
     source: "RemoteOK",
     tags: Array.isArray(j.tags) ? j.tags : [],
   }));

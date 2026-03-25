@@ -1,7 +1,7 @@
 import { XMLParser } from "fast-xml-parser";
 import type { Job } from "../types.js";
 
-const FEED_URL = "https://remotive.com/remote-jobs/rss";
+const FEED_URL = "https://remotive.com/remote-jobs/feed";
 
 export async function fetchRemotive(): Promise<Job[]> {
   const res = await fetch(FEED_URL, { signal: AbortSignal.timeout(15_000) });

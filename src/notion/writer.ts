@@ -28,7 +28,7 @@ export async function writeDailySummary(summary: RunSummary): Promise<void> {
 
   const blocks: any[] = [
     ...(summary.marketSummary
-      ? [callout(`📊 Today's Market: ${summary.marketSummary}`, "💡")]
+      ? [callout(`Today's Market: ${summary.marketSummary}`, "i")]
       : []),
 
     heading("Run Summary"),
@@ -42,12 +42,12 @@ export async function writeDailySummary(summary: RunSummary): Promise<void> {
     ...(summary.feedback && (summary.feedback.relevant.length > 0 || summary.feedback.notRelevant.length > 0)
       ? [
           divider(),
-          heading("💡 Learned From Your Feedback"),
+          heading("Learned From Your Feedback"),
           ...(summary.feedback.relevant.length > 0
-            ? [bullet(`✅ Marked relevant (${summary.feedback.relevant.length}): ${summary.feedback.relevant.slice(0, 3).join(" · ")}`)]
+            ? [bullet(`Marked relevant (${summary.feedback.relevant.length}): ${summary.feedback.relevant.slice(0, 3).join(" · ")}`)]
             : []),
           ...(summary.feedback.notRelevant.length > 0
-            ? [bullet(`❌ Marked not relevant (${summary.feedback.notRelevant.length}): ${summary.feedback.notRelevant.slice(0, 3).join(" · ")}`)]
+            ? [bullet(`Marked not relevant (${summary.feedback.notRelevant.length}): ${summary.feedback.notRelevant.slice(0, 3).join(" · ")}`)]
             : []),
           bullet("Claude used this feedback to adjust scoring for today's results."),
         ]
@@ -56,23 +56,23 @@ export async function writeDailySummary(summary: RunSummary): Promise<void> {
     ...(summary.applyQueue && summary.applyQueue.length > 0
       ? [
           divider(),
-          heading("📬 Apply Queue — Action Required"),
+          heading("Apply Queue — Action Required"),
           callout(
             `You flagged ${summary.applyQueue.length} job(s) as "Interested" in Notion. Review and apply:`,
-            "🎯"
+            ">"
           ),
           ...summary.applyQueue.map((job) => bullet(job)),
         ]
       : []),
 
     divider(),
-    heading("🏆 Top Matches Today"),
+    heading("Top Matches Today"),
     ...(newJobs.length > 0 ? [jobTable(newJobs)] : [bullet("No new matches today.")]),
 
     ...(highSalaryJobs.length > 0
       ? [
           divider(),
-          heading("💰 High Salary Fit"),
+          heading("High Salary Fit"),
           bullet(`${highSalaryJobs.length} roles matched your target/stretch salary range:`),
           ...highSalaryJobs.map((job) =>
             bullet(`${job.title} at ${job.company} — ${formatSalary(job)} — score ${job.score}/100`)
@@ -81,13 +81,13 @@ export async function writeDailySummary(summary: RunSummary): Promise<void> {
       : []),
 
     divider(),
-    heading("🧠 Why These Were Chosen"),
+    heading("Why These Were Chosen"),
     ...newJobs.map((job) => reasoningBlock(job)),
 
     ...(alreadyApplied.length > 0
       ? [
           divider(),
-          heading("✅ Already Applied"),
+          heading("Already Applied"),
           ...alreadyApplied.map((job) =>
             bullet(`${job.title} at ${job.company} — score ${job.score}/100`)
           ),
@@ -97,7 +97,7 @@ export async function writeDailySummary(summary: RunSummary): Promise<void> {
     ...(summary.errors.length > 0
       ? [
           divider(),
-          heading("⚠️ Source Errors"),
+          heading("Source Errors"),
           ...summary.errors.map((e) => bullet(`${e.source}: ${e.error}`)),
         ]
       : []),
