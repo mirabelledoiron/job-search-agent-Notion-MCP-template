@@ -1,0 +1,55 @@
+{
+  "titles": [
+    "Software Engineer",
+    "Full Stack Engineer",
+    "Backend Engineer"
+  ],
+  "titleKeywords": [
+    "full stack",
+    "backend",
+    "node",
+    "typescript"
+  ],
+  "excludeTitles": [
+    "junior",
+    "intern",
+    "staff",
+    "principal"
+  ],
+  "salary": {
+    "floor": 120000,
+    "targetMin": 140000,
+    "targetMax": 180000,
+    "stretch": 200000
+  },
+  "remote": true,
+  "locations": ["remote", "us", "usa", "united states", "anywhere"],
+  "skills": [
+    "TypeScript",
+    "React",
+    "Node.js",
+    "PostgreSQL",
+    "AWS"
+  ],
+  "targetCompanies": [
+    "Stripe",
+    "Linear",
+    "Vercel",
+    "Notion",
+    "Figma"
+  ],
+  "industryKeywords": {
+    "target": ["saas", "fintech", "dev tools", "ai"],
+    "avoid": ["gambling", "crypto", "defense"]
+  },
+  "minScore": 60,
+  "greenhouse": {
+    "Figma": "figma",
+    "Linear": "linear",
+    "Vercel": "vercel"
+  },
+  "ashby": {
+    "Notion": "notion",
+    "Loom": "loom"
+  }
+}

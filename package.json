@@ -1,0 +1,25 @@
+{
+  "name": "job-search-agent",
+  "version": "1.0.0",
+  "description": "Automated daily job search agent — scores roles with Claude AI and delivers top matches to Notion every morning.",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "seed": "tsx src/notion/seed.ts",
+    "weekly": "tsx src/notion/weeklyReport.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.36.3",
+    "@notionhq/client": "^2.2.15",
+    "cheerio": "^1.0.0",
+    "dotenv": "^16.4.7",
+    "fast-xml-parser": "^4.5.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}
