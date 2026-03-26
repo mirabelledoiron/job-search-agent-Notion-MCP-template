@@ -1,9 +1,8 @@
 // Run with: npm run weekly
-// Queries all Applied jobs in the Job Tracker database and generates
-// a formatted weekly applications page for unemployment insurance reporting.
+// Queries all Applied jobs via Notion MCP and generates a weekly report.
 import "dotenv/config";
-import { notion, IDS, formatSalary } from "./writer.js";
-import type { PageObjectResponse } from "@notionhq/client/build/src/api-endpoints.js";
+import { mcpQueryDatabase, mcpCreatePage, closeMCP } from "./mcp-client.js";
+import { IDS, formatSalary } from "./writer.js";
 
 interface AppliedJob {
   title: string;
@@ -15,16 +14,16 @@ interface AppliedJob {
 }
 
 async function generateWeeklyReport(): Promise<void> {
-  console.log("Querying Job Tracker for applied jobs...");
+  console.log("Querying Job Tracker for applied jobs via MCP...");
 
-  const response = await notion.databases.query({
-    database_id: IDS.jobTracker,
-    filter: { property: "Applied", checkbox: { equals: true } },
-    sorts: [{ property: "Date Applied", direction: "descending" }],
-  });
+  const response = await mcpQueryDatabase(
+    IDS.jobTracker,
+    { property: "Applied", checkbox: { equals: true } },
+    [{ property: "Date Applied", direction: "descending" }],
+  );
 
-  const jobs: AppliedJob[] = response.results.map((page) => {
-    const p = (page as PageObjectResponse).properties as Record<string, any>;
+  const jobs: AppliedJob[] = (response.results ?? []).map((page: any) => {
+    const p = page.properties ?? {};
     return {
       title: p["Job Title"]?.title?.[0]?.text?.content ?? "—",
       company: p["Company"]?.rich_text?.[0]?.text?.content ?? "—",
@@ -37,10 +36,10 @@ async function generateWeeklyReport(): Promise<void> {
 
   if (jobs.length === 0) {
     console.log("No applied jobs found. Check a job as Applied in Notion first.");
+    await closeMCP();
     return;
   }
 
-  // Determine the week range from the applied dates
   const appliedDates = jobs.map((j) => j.dateApplied).filter((d) => d !== "—").sort();
   const weekStart = appliedDates[0] ?? new Date().toISOString().split("T")[0];
   const weekEnd = appliedDates[appliedDates.length - 1] ?? weekStart;
@@ -48,12 +47,12 @@ async function generateWeeklyReport(): Promise<void> {
 
   console.log(`Creating report: "${title}" (${jobs.length} applications)`);
 
-  await notion.pages.create({
-    parent: { page_id: IDS.root },
-    properties: {
+  await mcpCreatePage(
+    { page_id: IDS.root },
+    {
       title: { title: [{ type: "text", text: { content: title } }] },
     },
-    children: [
+    [
       {
         object: "block",
         type: "callout",
@@ -105,9 +104,10 @@ async function generateWeeklyReport(): Promise<void> {
         },
       })),
     ],
-  });
+  );
 
   console.log(`Done. Report created in Notion: "${title}"`);
+  await closeMCP();
 }
 
 function tableRow(cells: string[]) {

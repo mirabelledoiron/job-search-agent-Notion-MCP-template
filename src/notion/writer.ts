@@ -1,7 +1,5 @@
-import { Client } from "@notionhq/client";
+import { mcpCreatePage, mcpQueryDatabase, mcpAppendBlocks } from "./mcp-client.js";
 import type { RunSummary, ScoredJob } from "../types.js";
-
-export const notion = new Client({ auth: process.env.NOTION_TOKEN });
 
 export const IDS = {
   dailySummaries: process.env.NOTION_DAILY_SUMMARIES_PAGE_ID ?? "",
@@ -17,7 +15,6 @@ export async function writeDailySummary(summary: RunSummary): Promise<void> {
   const newJobs = top.filter((j) => !appliedUrls.has(j.url));
   const alreadyApplied = top.filter((j) => appliedUrls.has(j.url));
 
-  // Segment new jobs by salary fit for dedicated sections
   const highSalaryJobs = newJobs.filter(
     (j) => j.salaryFit === "target" || j.salaryFit === "stretch"
   );
@@ -26,17 +23,10 @@ export async function writeDailySummary(summary: RunSummary): Promise<void> {
   const prefsLabel = summary.preferencesSource === "notion" ? " · prefs from Notion" : "";
 
   const blocks: any[] = [
-    // ── Market Summary ──────────────────────────────────────────────────
     ...(summary.marketSummary
-      ? [
-          callout(
-            `Today's Market: ${summary.marketSummary}`,
-            "i"
-          ),
-        ]
+      ? [callout(`Today's Market: ${summary.marketSummary}`, "i")]
       : []),
 
-    // ── Run Stats ─────────────────────────────────────────────────────────
     heading("Run Summary"),
     bullet(`Date: ${summary.runAt}${modeLabel}${prefsLabel}`),
     bullet(`Sources: ${summary.sourcesSearched.join(", ")}`),
@@ -47,7 +37,6 @@ export async function writeDailySummary(summary: RunSummary): Promise<void> {
     ),
     bullet(`Duration: ${(summary.durationMs / 1000).toFixed(1)}s`),
 
-    // ── Feedback summary ─────────────────────────────────────────────────
     ...(summary.feedback && (summary.feedback.relevant.length > 0 || summary.feedback.notRelevant.length > 0)
       ? [
           divider(),
@@ -62,7 +51,6 @@ export async function writeDailySummary(summary: RunSummary): Promise<void> {
         ]
       : []),
 
-    // ── Apply Queue (Notion → Agent) ──────────────────────────────────
     ...(summary.applyQueue && summary.applyQueue.length > 0
       ? [
           divider(),
@@ -77,33 +65,27 @@ export async function writeDailySummary(summary: RunSummary): Promise<void> {
 
     divider(),
 
-    // ── Top Matches Today ─────────────────────────────────────────────
     heading("Top Matches Today"),
     ...(newJobs.length > 0
       ? [jobTable(newJobs)]
       : [bullet("No new matches today.")]),
 
-    // ── High Salary Fit ───────────────────────────────────────────────
     ...(highSalaryJobs.length > 0
       ? [
           divider(),
           heading("High Salary Fit"),
           bullet(`${highSalaryJobs.length} roles matched your target/stretch salary range:`),
           ...highSalaryJobs.map((job) =>
-            bullet(
-              `${job.title} at ${job.company} — ${formatSalary(job)} — score ${job.score}/100`
-            )
+            bullet(`${job.title} at ${job.company} — ${formatSalary(job)} — score ${job.score}/100`)
           ),
         ]
       : []),
 
     divider(),
 
-    // ── Why These Were Chosen ─────────────────────────────────────────
     heading("Why These Were Chosen"),
     ...newJobs.map((job) => reasoningBlock(job)),
 
-    // ── Already Applied ────────────────────────────────────────────────
     ...(alreadyApplied.length > 0
       ? [
           divider(),
@@ -114,7 +96,6 @@ export async function writeDailySummary(summary: RunSummary): Promise<void> {
         ]
       : []),
 
-    // ── Errors ─────────────────────────────────────────────────────────
     ...(summary.errors.length > 0
       ? [
           divider(),
@@ -124,20 +105,16 @@ export async function writeDailySummary(summary: RunSummary): Promise<void> {
       : []),
   ];
 
-  await notion.pages.create({
-    parent: { page_id: IDS.dailySummaries },
-    properties: {
+  // Create the daily summary page via MCP
+  const page = await mcpCreatePage(
+    { page_id: IDS.dailySummaries },
+    {
       title: {
-        title: [
-          {
-            type: "text",
-            text: { content: `${date} — ${summary.topMatches.length} matches` },
-          },
-        ],
+        title: [{ type: "text", text: { content: `${date} — ${summary.topMatches.length} matches` } }],
       },
     },
-    children: blocks,
-  });
+    blocks,
+  );
 
   await writeToJobTracker(newJobs, date, appliedUrls);
 }
@@ -147,17 +124,17 @@ async function getAppliedUrls(): Promise<Set<string>> {
 
   const tryQuery = async (property: string, value: boolean) => {
     try {
-      const res = await notion.databases.query({
-        database_id: IDS.jobTracker,
-        filter: { property, checkbox: { equals: value } },
+      const res = await mcpQueryDatabase(IDS.jobTracker, {
+        property,
+        checkbox: { equals: value },
       });
-      for (const page of res.results) {
-        const props = (page as { properties: Record<string, { url?: string }> }).properties;
-        const url = props["Link"]?.url ?? "";
+      for (const page of res.results ?? []) {
+        const props = page.properties;
+        const url = props?.["Link"]?.url ?? "";
         if (url) urls.add(url);
       }
     } catch {
-      // Property doesn't exist yet in this DB — skip gracefully
+      // Property doesn't exist yet — skip gracefully
     }
   };
 
@@ -174,24 +151,23 @@ async function writeToJobTracker(
   date: string,
   appliedUrls: Set<string>
 ): Promise<void> {
-  const existing = await notion.databases.query({
-    database_id: IDS.jobTracker,
-    filter: {
+  let existingUrls = new Set<string>();
+  try {
+    const existing = await mcpQueryDatabase(IDS.jobTracker, {
       property: "Date Found",
       date: {
         on_or_after: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000)
           .toISOString()
           .split("T")[0],
       },
-    },
-  });
+    });
 
-  const existingUrls = new Set(
-    existing.results.map((p) => {
-      const props = (p as { properties: Record<string, { url?: string }> }).properties;
-      return props["Link"]?.url ?? "";
-    })
-  );
+    existingUrls = new Set(
+      (existing.results ?? []).map((p: any) => p.properties?.["Link"]?.url ?? "")
+    );
+  } catch {
+    // Database may not have Date Found property yet
+  }
 
   const toWrite = jobs.filter(
     (job) => !existingUrls.has(job.url) && !appliedUrls.has(job.url)
@@ -199,9 +175,9 @@ async function writeToJobTracker(
 
   await Promise.allSettled(
     toWrite.map((job) =>
-      notion.pages.create({
-        parent: { database_id: IDS.jobTracker },
-        properties: {
+      mcpCreatePage(
+        { database_id: IDS.jobTracker },
+        {
           "Job Title": { title: [{ type: "text", text: { content: job.title } }] },
           "Company": { rich_text: [{ type: "text", text: { content: job.company } }] },
           "Score": { number: job.score },
@@ -211,15 +187,13 @@ async function writeToJobTracker(
           "Link": { url: job.url },
           "Applied": { checkbox: false },
           "Date Found": { date: { start: date } },
-          // Optional fields — only written if the property exists in the DB.
-          // If it doesn't exist, Promise.allSettled catches the failure gracefully.
           "Status": { select: { name: "Found" } },
         },
-      }).catch(async () => {
+      ).catch(async () => {
         // Status property may not exist yet — retry without it
-        return notion.pages.create({
-          parent: { database_id: IDS.jobTracker },
-          properties: {
+        return mcpCreatePage(
+          { database_id: IDS.jobTracker },
+          {
             "Job Title": { title: [{ type: "text", text: { content: job.title } }] },
             "Company": { rich_text: [{ type: "text", text: { content: job.company } }] },
             "Score": { number: job.score },
@@ -230,7 +204,7 @@ async function writeToJobTracker(
             "Applied": { checkbox: false },
             "Date Found": { date: { start: date } },
           },
-        });
+        );
       })
     )
   );

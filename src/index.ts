@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { closeMCP } from "./notion/mcp-client.js";
 import { fetchRemotive } from "./sources/remotive.js";
 import { fetchRemoteOK } from "./sources/remoteok.js";
 import { fetchWeWorkRemotely } from "./sources/weworkremotely.js";
@@ -126,9 +127,13 @@ async function run(): Promise<void> {
   }
 
   console.log(`Done in ${(summary.durationMs / 1000).toFixed(1)}s`);
+
+  // Close MCP connection
+  await closeMCP();
 }
 
-run().catch((err) => {
+run().catch(async (err) => {
   console.error("Fatal error:", err);
+  await closeMCP();
   process.exit(1);
 });

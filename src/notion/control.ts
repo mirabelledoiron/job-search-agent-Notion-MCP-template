@@ -1,25 +1,11 @@
 /**
- * Agent Control Panel — reads run configuration and user feedback from Notion.
+ * Agent Control Panel — reads run configuration and user feedback from Notion via MCP.
  *
- * Control Panel DB schema (created by `npm run seed` or manually):
- *   Agent Name     — Title      — "Job Search Agent" (used to find the row)
- *   Run Agent      — Checkbox   — uncheck to pause automatic runs
- *   Mode           — Select     — "daily" | "test" | "paused"
- *   Last Run       — Date       — auto-updated by agent after each run
- *   Last Run Stats — Rich text  — auto-updated summary of last run
- *
- * Job Tracker optional fields (add manually to your Job Tracker DB):
- *   Status         — Select     — "New" | "Reviewed" | "Apply" | "Applied" | "Ignored"
- *   Relevant       — Checkbox   — mark jobs you found useful / on-target
- *   Not Relevant   — Checkbox   — mark jobs that were noise / off-target
- *   Notes          — Rich text  — freeform feedback on a job
- *
- * All reads are gracefully handled — missing fields or unreachable DB returns
- * safe defaults so the agent always runs.
+ * All Notion interactions go through the Notion MCP server, not the SDK directly.
  */
-import { notion, IDS } from "./writer.js";
+import { mcpQueryDatabase, mcpUpdatePage } from "./mcp-client.js";
+import { IDS } from "./writer.js";
 import type { AgentControl, UserFeedback } from "../types.js";
-import type { PageObjectResponse } from "@notionhq/client/build/src/api-endpoints.js";
 
 const CONTROL_DB = process.env.NOTION_CONTROL_DB_ID;
 
@@ -31,17 +17,14 @@ export async function readAgentControl(): Promise<AgentControl> {
   }
 
   try {
-    const response = await notion.databases.query({
-      database_id: CONTROL_DB,
-      page_size: 1,
-    });
+    const response = await mcpQueryDatabase(CONTROL_DB, undefined, undefined, 1);
 
-    if (response.results.length === 0) {
+    if (!response.results || response.results.length === 0) {
       return { shouldRun: true, mode: "daily" };
     }
 
-    const page = response.results[0] as PageObjectResponse;
-    const props = page.properties as Record<string, any>;
+    const page = response.results[0];
+    const props = page.properties ?? {};
 
     const runAgent: boolean = props["Run Agent"]?.checkbox ?? true;
     const modeRaw: string = props["Mode"]?.select?.name ?? "daily";
@@ -68,12 +51,9 @@ export async function readAgentControl(): Promise<AgentControl> {
 
 export async function updateControlAfterRun(pageId: string, stats: string): Promise<void> {
   try {
-    await notion.pages.update({
-      page_id: pageId,
-      properties: {
-        "Last Run": { date: { start: new Date().toISOString().split("T")[0] } },
-        "Last Run Stats": { rich_text: [{ type: "text", text: { content: stats } }] },
-      },
+    await mcpUpdatePage(pageId, {
+      "Last Run": { date: { start: new Date().toISOString().split("T")[0] } },
+      "Last Run Stats": { rich_text: [{ type: "text", text: { content: stats } }] },
     });
     console.log("[Control] Updated last run in control panel.");
   } catch (err) {
@@ -83,29 +63,23 @@ export async function updateControlAfterRun(pageId: string, stats: string): Prom
 
 // ─── Feedback (Notion → Agent) ────────────────────────────────────────────────
 
-/**
- * Reads jobs the user has explicitly marked Relevant or Not Relevant.
- * These are used to inform Claude's scoring prompt so future results improve.
- */
 export async function readUserFeedback(): Promise<UserFeedback> {
   try {
     const [relevantRes, notRelevantRes] = await Promise.all([
-      notion.databases.query({
-        database_id: IDS.jobTracker,
-        filter: { property: "Relevant", checkbox: { equals: true } },
-        page_size: 20,
-      }),
-      notion.databases.query({
-        database_id: IDS.jobTracker,
-        filter: { property: "Not Relevant", checkbox: { equals: true } },
-        page_size: 20,
-      }),
+      mcpQueryDatabase(IDS.jobTracker, {
+        property: "Relevant",
+        checkbox: { equals: true },
+      }, undefined, 20),
+      mcpQueryDatabase(IDS.jobTracker, {
+        property: "Not Relevant",
+        checkbox: { equals: true },
+      }, undefined, 20),
     ]);
 
     const extract = (pages: any[]): string[] =>
-      pages
-        .map((p) => {
-          const props = (p as PageObjectResponse).properties as Record<string, any>;
+      (pages ?? [])
+        .map((p: any) => {
+          const props = p.properties ?? {};
           const title = props["Job Title"]?.title?.[0]?.text?.content ?? "";
           const company = props["Company"]?.rich_text?.[0]?.text?.content ?? "";
           return title && company ? `${title} at ${company}` : "";
@@ -123,32 +97,23 @@ export async function readUserFeedback(): Promise<UserFeedback> {
 
     return { relevant, notRelevant };
   } catch {
-    // Gracefully handle missing Relevant / Not Relevant properties
     return { relevant: [], notRelevant: [] };
   }
 }
 
 // ─── Apply Queue (Notion → Agent trigger) ─────────────────────────────────────
 
-/**
- * Reads jobs the user has set Status = "Interested" in the Job Tracker.
- * These appear in the next daily summary as a highlighted action section,
- * turning Notion into an outbound trigger for the agent.
- */
 export async function readApplyQueue(): Promise<string[]> {
   try {
-    const response = await notion.databases.query({
-      database_id: IDS.jobTracker,
-      filter: {
-        and: [
-          { property: "Status", select: { equals: "Interested" } },
-          { property: "Applied", checkbox: { equals: false } },
-        ],
-      },
+    const response = await mcpQueryDatabase(IDS.jobTracker, {
+      and: [
+        { property: "Status", select: { equals: "Interested" } },
+        { property: "Applied", checkbox: { equals: false } },
+      ],
     });
 
-    const jobs = response.results.map((p) => {
-      const props = (p as PageObjectResponse).properties as Record<string, any>;
+    const jobs = (response.results ?? []).map((p: any) => {
+      const props = p.properties ?? {};
       const title = props["Job Title"]?.title?.[0]?.text?.content ?? "";
       const company = props["Company"]?.rich_text?.[0]?.text?.content ?? "";
       const url = props["Link"]?.url ?? "";
@@ -161,7 +126,6 @@ export async function readApplyQueue(): Promise<string[]> {
 
     return jobs;
   } catch {
-    // Gracefully handle missing Status property
     return [];
   }
 }

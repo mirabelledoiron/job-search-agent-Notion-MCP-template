@@ -1,24 +1,10 @@
 /**
- * Loads job search preferences from a Notion Preferences database.
- *
- * Notion DB schema (created by `npm run seed` or manually):
- *   Setting  — Title property  — key name (e.g. "titles", "salary_floor")
- *   Value    — Rich text       — comma-separated for lists, plain number for numerics
- *   Category — Select          — "Titles" | "Skills" | "Salary" | "Locations" | "Exclusions" | "Industry" | "Scoring"
- *   Active   — Checkbox        — uncheck to temporarily disable a preference row
- *
- * If NOTION_PREFERENCES_DB_ID is not set, or the DB is empty, or Notion is
- * unreachable, the agent falls back to config.json, then built-in defaults.
- *
- * Supported setting keys:
- *   titles, exclude_titles, skills, locations, target_companies,
- *   salary_floor, salary_target_min, salary_target_max, salary_stretch,
- *   min_score, industry_target, industry_avoid
+ * Loads job search preferences from a Notion Preferences database via MCP.
+ * Falls back to config.json values, then built-in defaults.
  */
-import { notion } from "./writer.js";
+import { mcpQueryDatabase } from "./mcp-client.js";
 import { defaultRequirements, loadConfigFileRequirements } from "../config/requirements.js";
 import type { Requirements } from "../types.js";
-import type { PageObjectResponse } from "@notionhq/client/build/src/api-endpoints.js";
 
 const PREFS_DB = process.env.NOTION_PREFERENCES_DB_ID;
 
@@ -31,20 +17,21 @@ export async function loadPreferences(): Promise<{ prefs: Requirements; source: 
   }
 
   try {
-    const response = await notion.databases.query({
-      database_id: PREFS_DB,
-      filter: { property: "Active", checkbox: { equals: true } },
+    const response = await mcpQueryDatabase(PREFS_DB, {
+      property: "Active",
+      checkbox: { equals: true },
     });
 
-    if (response.results.length === 0) {
+    const results = response.results ?? [];
+    if (results.length === 0) {
       console.log("[Preferences] Notion Preferences DB has no active rows — using config.json / defaults.");
       const fromFile = loadConfigFileRequirements();
       if (fromFile) return { prefs: fromFile, source: "config" };
       return { prefs: deepClone(defaultRequirements), source: "defaults" };
     }
 
-    const prefs = buildPreferences(response.results as PageObjectResponse[]);
-    console.log(`[Preferences] Loaded ${response.results.length} preference rows from Notion.`);
+    const prefs = buildPreferences(results);
+    console.log(`[Preferences] Loaded ${results.length} preference rows from Notion.`);
     return { prefs, source: "notion" };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -55,11 +42,11 @@ export async function loadPreferences(): Promise<{ prefs: Requirements; source: 
   }
 }
 
-function buildPreferences(pages: PageObjectResponse[]): Requirements {
+function buildPreferences(pages: any[]): Requirements {
   const prefs = deepClone(defaultRequirements);
 
   for (const page of pages) {
-    const props = page.properties as Record<string, any>;
+    const props = page.properties ?? {};
     const setting = (props["Setting"]?.title?.[0]?.text?.content ?? "").trim();
     const value = (props["Value"]?.rich_text?.[0]?.text?.content ?? "").trim();
 
@@ -72,42 +59,18 @@ function buildPreferences(pages: PageObjectResponse[]): Requirements {
     };
 
     switch (setting) {
-      case "titles":
-        prefs.titles = toList(value);
-        break;
-      case "exclude_titles":
-        prefs.excludeTitleExact = toList(value);
-        break;
-      case "skills":
-        prefs.skills = toList(value);
-        break;
-      case "locations":
-        prefs.locations = toList(value);
-        break;
-      case "target_companies":
-        prefs.targetCompanies = toList(value);
-        break;
-      case "salary_floor":
-        prefs.salary.floor = toInt(value, prefs.salary.floor);
-        break;
-      case "salary_target_min":
-        prefs.salary.targetMin = toInt(value, prefs.salary.targetMin);
-        break;
-      case "salary_target_max":
-        prefs.salary.targetMax = toInt(value, prefs.salary.targetMax);
-        break;
-      case "salary_stretch":
-        prefs.salary.stretch = toInt(value, prefs.salary.stretch);
-        break;
-      case "min_score":
-        prefs.minScore = toInt(value, prefs.minScore);
-        break;
-      case "industry_target":
-        prefs.industryKeywords.target = toList(value);
-        break;
-      case "industry_avoid":
-        prefs.industryKeywords.avoid = toList(value);
-        break;
+      case "titles": prefs.titles = toList(value); break;
+      case "exclude_titles": prefs.excludeTitleExact = toList(value); break;
+      case "skills": prefs.skills = toList(value); break;
+      case "locations": prefs.locations = toList(value); break;
+      case "target_companies": prefs.targetCompanies = toList(value); break;
+      case "salary_floor": prefs.salary.floor = toInt(value, prefs.salary.floor); break;
+      case "salary_target_min": prefs.salary.targetMin = toInt(value, prefs.salary.targetMin); break;
+      case "salary_target_max": prefs.salary.targetMax = toInt(value, prefs.salary.targetMax); break;
+      case "salary_stretch": prefs.salary.stretch = toInt(value, prefs.salary.stretch); break;
+      case "min_score": prefs.minScore = toInt(value, prefs.minScore); break;
+      case "industry_target": prefs.industryKeywords.target = toList(value); break;
+      case "industry_avoid": prefs.industryKeywords.avoid = toList(value); break;
     }
   }
 

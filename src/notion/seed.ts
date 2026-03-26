@@ -1,10 +1,11 @@
 /**
  * npm run seed
  *
- * Creates all required Notion databases for the job search agent:
+ * Creates all required Notion databases for the job search agent via MCP:
  *   1. Daily Summaries — parent page for daily run output
  *   2. Job Tracker     — database for tracking all matched jobs
  *   3. Preferences     — database for controlling agent behavior from Notion
+ *   4. Control Panel   — database for pausing/resuming the agent
  *
  * Prerequisites:
  *   - NOTION_TOKEN must be set in your .env
@@ -13,9 +14,7 @@
  * After running, copy the printed IDs into your .env and GitHub secrets.
  */
 import "dotenv/config";
-import { Client } from "@notionhq/client";
-
-const notion = new Client({ auth: process.env.NOTION_TOKEN });
+import { mcpCreatePage, mcpCreateDatabase, closeMCP } from "./mcp-client.js";
 
 async function seed(): Promise<void> {
   if (!process.env.NOTION_TOKEN) {
@@ -23,18 +22,17 @@ async function seed(): Promise<void> {
     process.exit(1);
   }
 
-  console.log("Setting up Notion databases for your job search agent...\n");
+  console.log("Setting up Notion databases for your job search agent via MCP...\n");
 
-  // ── 1. Find a parent page to put everything under ─────────────────────────
-  // We create a root page in the user's workspace first
+  // ── 1. Create root page ─────────────────────────────────────────────────
   let rootPageId: string;
   try {
-    const root = await notion.pages.create({
-      parent: { type: "workspace", workspace: true },
-      properties: {
+    const root = await mcpCreatePage(
+      { type: "workspace", workspace: true } as any,
+      {
         title: { title: [{ type: "text", text: { content: "Job Search Agent" } }] },
       },
-      children: [
+      [
         {
           object: "block",
           type: "callout",
@@ -47,33 +45,33 @@ async function seed(): Promise<void> {
           },
         },
       ],
-    });
+    );
     rootPageId = root.id;
     console.log(`Created root page: Job Search Agent (${rootPageId})`);
   } catch (err: any) {
-    // Some workspaces don't allow workspace-level pages — use a fallback message
     console.error("Error: Could not create a root page in your workspace.");
     console.error("   This usually means your integration doesn't have 'Insert content' permission.");
-    console.error("   Fix: Go to notion.so/my-integrations → your integration → Capabilities → enable 'Insert content'.");
+    console.error("   Fix: Go to notion.so/my-integrations > your integration > Capabilities > enable 'Insert content'.");
     console.error(`   Error: ${err.message}`);
+    await closeMCP();
     process.exit(1);
   }
 
   // ── 2. Daily Summaries page ───────────────────────────────────────────────
-  const dailySummaries = await notion.pages.create({
-    parent: { page_id: rootPageId },
-    properties: {
+  const dailySummaries = await mcpCreatePage(
+    { page_id: rootPageId },
+    {
       title: { title: [{ type: "text", text: { content: "Daily Summaries" } }] },
     },
-  });
+  );
   const dailySummariesId = dailySummaries.id;
   console.log(`Created Daily Summaries page (${dailySummariesId})`);
 
   // ── 3. Job Tracker database ───────────────────────────────────────────────
-  const jobTracker = await notion.databases.create({
-    parent: { page_id: rootPageId },
-    title: [{ type: "text", text: { content: "Job Tracker" } }],
-    properties: {
+  const jobTracker = await mcpCreateDatabase(
+    { page_id: rootPageId },
+    [{ type: "text", text: { content: "Job Tracker" } }],
+    {
       "Job Title": { title: {} },
       "Company": { rich_text: {} },
       "Score": { number: { format: "number" } },
@@ -112,15 +110,15 @@ async function seed(): Promise<void> {
       "Not Relevant": { checkbox: {} },
       "Notes": { rich_text: {} },
     },
-  });
+  );
   const jobTrackerId = jobTracker.id;
   console.log(`Created Job Tracker database (${jobTrackerId})`);
 
   // ── 4. Preferences database ───────────────────────────────────────────────
-  const preferencesDb = await notion.databases.create({
-    parent: { page_id: rootPageId },
-    title: [{ type: "text", text: { content: "Job Search Preferences" } }],
-    properties: {
+  const preferencesDb = await mcpCreateDatabase(
+    { page_id: rootPageId },
+    [{ type: "text", text: { content: "Job Search Preferences" } }],
+    {
       "Setting": { title: {} },
       "Value": { rich_text: {} },
       "Category": {
@@ -139,7 +137,7 @@ async function seed(): Promise<void> {
       },
       "Active": { checkbox: {} },
     },
-  });
+  );
   const preferencesId = preferencesDb.id;
   console.log(`Created Job Search Preferences database (${preferencesId})`);
 
@@ -161,24 +159,24 @@ async function seed(): Promise<void> {
 
   await Promise.all(
     defaultPrefs.map((pref) =>
-      notion.pages.create({
-        parent: { database_id: preferencesId },
-        properties: {
+      mcpCreatePage(
+        { database_id: preferencesId },
+        {
           "Setting": { title: [{ type: "text", text: { content: pref.setting } }] },
           "Value": { rich_text: [{ type: "text", text: { content: pref.value } }] },
           "Category": { select: { name: pref.category } },
           "Active": { checkbox: true },
         },
-      })
+      )
     )
   );
   console.log(`Seeded ${defaultPrefs.length} default preference rows`);
 
   // ── 6. Control Panel database ─────────────────────────────────────────────
-  const controlDb = await notion.databases.create({
-    parent: { page_id: rootPageId },
-    title: [{ type: "text", text: { content: "Agent Control Panel" } }],
-    properties: {
+  const controlDb = await mcpCreateDatabase(
+    { page_id: rootPageId },
+    [{ type: "text", text: { content: "Agent Control Panel" } }],
+    {
       "Agent Name": { title: {} },
       "Run Agent": { checkbox: {} },
       "Mode": {
@@ -193,18 +191,17 @@ async function seed(): Promise<void> {
       "Last Run": { date: {} },
       "Last Run Stats": { rich_text: {} },
     },
-  });
+  );
   const controlId = controlDb.id;
 
-  // Add the default control row
-  await notion.pages.create({
-    parent: { database_id: controlId },
-    properties: {
+  await mcpCreatePage(
+    { database_id: controlId },
+    {
       "Agent Name": { title: [{ type: "text", text: { content: "Job Search Agent" } }] },
       "Run Agent": { checkbox: true },
       "Mode": { select: { name: "daily" } },
     },
-  });
+  );
   console.log(`Created Agent Control Panel database (${controlId})`);
 
   // ── 7. Print results ──────────────────────────────────────────────────────
@@ -220,9 +217,12 @@ async function seed(): Promise<void> {
   console.log("  2. Edit your preferences in the 'Job Search Preferences' database in Notion");
   console.log("  3. Run: npm run dev");
   console.log("  4. Push to GitHub and add the IDs as repository secrets");
+
+  await closeMCP();
 }
 
-seed().catch((err) => {
+seed().catch(async (err) => {
   console.error("Fatal error during seed:", err);
+  await closeMCP();
   process.exit(1);
 });
